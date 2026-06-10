@@ -2,8 +2,9 @@
 
 Privacy-first planner for couples, families and friend groups.
 
-Русская документация: [docs/README.ru.md](./docs/README.ru.md)
-English documentation: [docs/README.en.md](./docs/README.en.md)
+- English documentation: [docs/README.en.md](./docs/README.en.md)
+- Русская документация: [docs/README.ru.md](./docs/README.ru.md)
+- Architecture diagrams: [docs/architecture.md](./docs/architecture.md)
 
 ## Quick start
 
