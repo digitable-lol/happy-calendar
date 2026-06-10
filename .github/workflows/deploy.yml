@@ -1,0 +1,108 @@
+name: Deploy Happy Calendar
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "README.md"
+      - "CHANGELOG.md"
+      - "LICENSE"
+      - ".gitignore"
+      - "docs/**"
+  workflow_dispatch:
+
+env:
+  DEPLOY_PATH: /www/wwwroot/happy-calendar.digitable.life
+
+jobs:
+  check-deploy-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          DEPLOY_HOST: ${{ secrets.DIGITABLE_HOST }}
+          DEPLOY_USER: ${{ secrets.DIGITABLE_USERNAME }}
+          DEPLOY_KEY: ${{ secrets.DIGITABLE_SSH_KEY }}
+        run: |
+          if [ -n "$DEPLOY_HOST" ] && [ -n "$DEPLOY_USER" ] && [ -n "$DEPLOY_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-deploy:
+    name: Build and deploy static site
+    needs: check-deploy-secrets
+    if: needs.check-deploy-secrets.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build Vite site
+        run: npm run build
+
+      - name: Setup SSH
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.DIGITABLE_SSH_KEY }}
+          known_hosts: unnecessary
+
+      - name: Add server to known hosts
+        run: ssh-keyscan -p 22 -H ${{ secrets.DIGITABLE_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to production
+        run: |
+          rsync -avz --delete \
+            --exclude='.user.ini' \
+            --exclude='.htaccess' \
+            -e "ssh -p 22" dist/ \
+            "${{ secrets.DIGITABLE_USERNAME }}@${{ secrets.DIGITABLE_HOST }}:${{ env.DEPLOY_PATH }}/"
+
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DIGITABLE_HOST }}
+          username: ${{ secrets.DIGITABLE_USERNAME }}
+          key: ${{ secrets.DIGITABLE_SSH_KEY }}
+          script: |
+            echo "=== happy-calendar deployment ==="
+            ls -la /www/wwwroot/happy-calendar.digitable.life/ | head -20
+            test -f /www/wwwroot/happy-calendar.digitable.life/index.html
+
+      - name: Reload nginx
+        uses: appleboy/ssh-action@v1.2.0
+        continue-on-error: true
+        with:
+          host: ${{ secrets.DIGITABLE_HOST }}
+          username: ${{ secrets.DIGITABLE_USERNAME }}
+          key: ${{ secrets.DIGITABLE_SSH_KEY }}
+          script: systemctl reload nginx || /etc/init.d/nginx reload || true
+
+  deploy-skipped:
+    name: Deploy skipped (secrets missing)
+    needs: check-deploy-secrets
+    if: needs.check-deploy-secrets.outputs.ready != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Deploy secrets are not configured yet."
+          echo "Add DIGITABLE_HOST, DIGITABLE_USERNAME, DIGITABLE_SSH_KEY to repo secrets."
+          echo "See DEPLOY.md for server setup."
