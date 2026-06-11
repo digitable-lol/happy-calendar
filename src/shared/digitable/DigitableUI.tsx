@@ -12,8 +12,8 @@ export const DtCard = ({ title, subtitle, children }: { readonly title: ReactNod
   <article className="dt-card"><header><h3>{title}</h3>{subtitle && <p>{subtitle}</p>}</header><div>{children}</div></article>
 );
 
-export const DtHeader = ({ logo, nav, actions }: { readonly logo: ReactNode; readonly nav: ReadonlyArray<{ readonly label: string; readonly href: string }>; readonly actions?: ReactNode }) => (
-  <header className="dt-header"><div>{logo}</div><nav>{nav.map((item) => <a key={item.label} href={item.href}>{item.label}</a>)}</nav><div>{actions}</div></header>
+export const DtHeader = ({ logo, nav, actions }: { readonly logo: ReactNode; readonly nav: ReadonlyArray<{ readonly label: string; readonly href: string; readonly tone?: 'accent' }>; readonly actions?: ReactNode }) => (
+  <header className="dt-header"><div>{logo}</div><nav>{nav.map((item) => <a className={item.tone === 'accent' ? 'dt-header__accent-link' : undefined} key={item.label} href={item.href}>{item.label}</a>)}</nav><div>{actions}</div></header>
 );
 
 export const DtTag = ({ children }: { readonly children: ReactNode }) => <span className="dt-tag">{children}</span>;
