@@ -372,6 +372,249 @@
   transform: translateY(0);
 }
 
+.workspace {
+  padding-top: clamp(30px, 5vw, 66px);
+}
+
+.workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workspace-head h2 {
+  margin: 0;
+  max-width: none;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.calendar-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.calendar-shell__title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+
+.calendar-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .03), transparent 24%), rgba(16, 18, 24, .65);
+}
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.calendar-toolbar strong {
+  color: var(--white);
+  font-size: 15px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.calendar-nav {
+  border: 1px solid rgba(14, 244, 223, .34);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  background: rgba(14, 244, 223, .09);
+  color: var(--white);
+  padding: 0;
+  font-size: 17px;
+}
+
+.calendar-nav:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.calendar-weekdays span {
+  text-align: center;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendar-cell {
+  position: relative;
+  aspect-ratio: 1;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .03);
+  color: var(--white);
+  cursor: pointer;
+}
+
+.calendar-cell:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+
+.calendar-cell span {
+  position: relative;
+  z-index: 1;
+}
+
+.calendar-cell i {
+  position: absolute;
+  left: 50%;
+  top: 57%;
+  width: 4px;
+  height: 4px;
+  transform: translate(-50%, 0);
+  border-radius: 50%;
+  background: var(--cyan);
+}
+
+.calendar-cell--other {
+  color: rgba(255, 255, 255, .35);
+}
+
+.calendar-cell--selected {
+  border-color: rgba(14, 244, 223, .52);
+  background: rgba(14, 244, 223, .16);
+}
+
+.calendar-note {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.calendar-note p,
+.calendar-note strong {
+  margin: 0;
+}
+
+.calendar-note strong {
+  font-size: 18px;
+}
+
+.workspace-controls {
+  display: grid;
+  gap: 16px;
+}
+
+.workspace-controls__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workspace-controls label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workspace-controls input,
+.workspace-controls select,
+.workspace-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, .04);
+  color: var(--white);
+}
+
+.workspace-controls select {
+  appearance: none;
+}
+
+.workspace-controls input:focus,
+.workspace-controls select:focus,
+.workspace-textarea:focus {
+  border-color: var(--cyan);
+  outline: 2px solid rgba(14, 244, 223, .18);
+}
+
+.workspace-event-summary {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.workspace-event-summary h3 {
+  margin: 0 0 8px;
+}
+
+.workspace-event-summary p {
+  margin: 4px 0;
+  color: var(--muted);
+}
+
+.workspace-card {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.workspace-payload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workspace-state {
+  margin: 4px 0 0;
+  color: var(--cyan);
+  font-size: 13px;
+  min-height: 18px;
+}
+
+.workspace-events ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.workspace-meta {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 1120px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 980px) {
   .hero,
   .split {
