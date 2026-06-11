@@ -1,21 +1,17 @@
 import { useContext } from 'react';
+import { DtLanguageSwitch } from '../digitable/DigitableUI';
 import { LOCALE_LABELS, LOCALES } from './constants';
-import type { Locale } from './types';
 import { TranslateContext } from './WithTranslate';
 
 export const LanguagePicker = () => {
   const { locale, setLocale } = useContext(TranslateContext);
 
   return (
-    <label className="language-picker">
-      <span className="sr-only">Language</span>
-      <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)} aria-label="Language">
-        {Object.values(LOCALES).map((language) => (
-          <option key={language} value={language}>
-            {LOCALE_LABELS[language]}
-          </option>
-        ))}
-      </select>
-    </label>
+    <DtLanguageSwitch
+      ariaLabel="Language"
+      onChange={setLocale}
+      options={Object.values(LOCALES).map((language) => ({ label: LOCALE_LABELS[language], value: language }))}
+      value={locale}
+    />
   );
 };

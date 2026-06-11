@@ -15,10 +15,10 @@ export const principles = [
 ] as const;
 
 export const platforms = [
-  ['platform.web.title', 'platform.web.text'],
-  ['platform.mobile.title', 'platform.mobile.text'],
-  ['platform.desktop.title', 'platform.desktop.text'],
-  ['platform.core.title', 'platform.core.text'],
+  ['platform.web.title', 'platform.web.text', false],
+  ['platform.mobile.title', 'platform.mobile.text', true],
+  ['platform.desktop.title', 'platform.desktop.text', true],
+  ['platform.core.title', 'platform.core.text', true],
 ] as const;
 
 export const functionalCore = [

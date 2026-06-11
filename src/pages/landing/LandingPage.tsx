@@ -79,7 +79,7 @@ export const LandingPage = () => {
   return (
     <main className="dt-canvas landing">
       <DtHeader
-        logo={<a className="brand" href="#top"><img src="/images/high_dimension_logo.png" alt="" /><strong>Happy Calendar</strong></a>}
+        logo={<a className="brand" href="#top"><img src="/images/high_dimension_logo.png" alt="" /><strong>Digitable.HappyCalendar</strong></a>}
         nav={[{ label: t(Messages.NAV_DEMO), href: '#demo', tone: 'accent' }, { label: t(Messages.NAV_IDEA), href: '#idea' }, { label: t(Messages.NAV_HASH), href: '#hash' }, { label: t(Messages.NAV_PLATFORMS), href: '#roadmap' }]}
         actions={<><LanguagePicker /><a className="dt-btn dt-btn--primary dt-btn--sm" href="#demo">{t(Messages.ACTION_OPEN_PAYLOAD)}</a></>}
       />
@@ -87,7 +87,7 @@ export const LandingPage = () => {
       <section className="hero" id="top">
         <div className="hero-copy">
           <DtBadge>{t(Messages.HERO_BADGE)}</DtBadge>
-          <h1>{t(Messages.HERO_TITLE)}</h1>
+          <h1>{t(Messages.HERO_TITLE).replace('.', '.\n')}</h1>
           <p>{t(Messages.HERO_DESCRIPTION)}</p>
           <div className="actions">
             <a className="dt-btn dt-btn--primary dt-btn--lg" href="#demo">{t(Messages.ACTION_TRY_DEMO)}</a>
@@ -141,6 +141,10 @@ export const LandingPage = () => {
       <section className="section" id="idea">
         <p className="eyebrow">{t(Messages.IDEA_EYEBROW)}</p>
         <h2>{t(Messages.IDEA_TITLE)}</h2>
+        <div className="idea-visual" aria-hidden="true">
+          <img src="/images/happy-calendar-brand-bg.png" alt="" />
+          <span className="idea-visual__mark"><img src="/images/high_dimension_logo.png" alt="" /></span>
+        </div>
         <div className="grid">{features.map(([title, text]) => <DtCard key={title} title={t(title)}>{t(text)}</DtCard>)}</div>
       </section>
 
@@ -160,7 +164,7 @@ export const LandingPage = () => {
       <section className="section" id="roadmap">
         <p className="eyebrow">{t(Messages.ROADMAP_EYEBROW)}</p>
         <h2>{t(Messages.ROADMAP_TITLE)}</h2>
-        <div className="grid">{platforms.map(([title, text]) => <DtCard key={title} title={t(title)}>{t(text)}</DtCard>)}</div>
+        <div className="grid">{platforms.map(([title, text, muted]) => <DtCard key={title} title={t(title)} muted={muted}>{t(text)}</DtCard>)}</div>
       </section>
 
       <a className={showToTop ? 'to-top to-top--visible' : 'to-top'} href="#top" aria-label={t(Messages.TO_TOP)}>
