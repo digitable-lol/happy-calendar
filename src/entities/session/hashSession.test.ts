@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { demoSession } from './fixtures';
 import { createSessionFingerprint, createSessionPayload, isNewerSession, readSessionPayload } from './hashSession';
+import type { SessionState } from './model';
+
+const encodePayload = (value: unknown): string => `hc1.${Buffer.from(JSON.stringify(value)).toString('base64').replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')}`;
 
 describe('hash session', () => {
   it('creates a portable Happy Calendar payload that restores the calendar state', () => {
@@ -10,7 +13,7 @@ describe('hash session', () => {
     expect(readSessionPayload(payload)).toEqual(demoSession);
   });
 
-  it('keeps category-level event budgets inside the hashed calendar payload', () => {
+  it('keeps event groups and category budgets inside the hashed calendar payload', () => {
     const restored = readSessionPayload(createSessionPayload(demoSession));
     const event = restored.events[0];
 
@@ -19,6 +22,10 @@ describe('hash session', () => {
       title: 'Дни рождения',
       budget: { amount: 5000, currency: 'RUB' },
     });
+    expect(restored.eventGroups).toEqual([
+      { id: 'group-family', title: 'Семья', eventIds: ['event-birthday-001'] },
+      { id: 'group-team', title: 'Друзья', eventIds: ['event-holiday-002'] },
+    ]);
     expect('budget' in event).toBe(false);
   });
 
@@ -53,6 +60,41 @@ describe('hash session', () => {
     const second = await createSessionFingerprint(changedCalendar, 'family-secret');
 
     expect(second).not.toBe(first);
+  });
+
+  it('changes fingerprint when group composition changes', async () => {
+    const firstGroup = demoSession.events[0].id;
+    const secondGroup = demoSession.events[1].id;
+    const groupedSession: SessionState = {
+      ...demoSession,
+      eventGroups: [
+        { id: 'group-family', title: 'Семья', eventIds: [firstGroup] },
+        { id: 'group-team', title: 'Друзья', eventIds: [secondGroup] },
+      ],
+    };
+    const reassignedSession: SessionState = {
+      ...groupedSession,
+      eventGroups: [
+        { id: 'group-family', title: 'Семья', eventIds: [secondGroup] },
+        { id: 'group-team', title: 'Друзья', eventIds: [firstGroup] },
+      ],
+    };
+
+    const first = await createSessionFingerprint(groupedSession, 'family-secret');
+    const second = await createSessionFingerprint(reassignedSession, 'family-secret');
+
+    expect(first).not.toBe(second);
+  });
+
+  it('hydrates a legacy payload without event groups', async () => {
+    const legacyPayload = encodePayload({
+      ...demoSession,
+      eventGroups: undefined,
+    } as { [key: string]: unknown });
+    const restored = readSessionPayload(legacyPayload);
+
+    expect(restored.eventGroups.length).toBeGreaterThan(0);
+    expect(restored.eventGroups[0].eventIds.includes(restored.events[0].id)).toBe(true);
   });
 
   it('rejects unsupported payload formats', () => {

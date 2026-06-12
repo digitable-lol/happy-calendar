@@ -533,6 +533,21 @@
   gap: 12px;
 }
 
+.workspace-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-groups select {
+  margin-bottom: 0;
+}
+
+.workspace-groups-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .workspace-controls label {
   display: grid;
   gap: 7px;
@@ -601,6 +616,55 @@
 .workspace-events ul {
   margin: 0;
   padding-left: 16px;
+}
+
+.workspace-event-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+
+.workspace-event-list__item {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--white);
+  padding: 8px 10px;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.workspace-event-list__item--active {
+  border-color: rgba(14, 244, 223, 0.5);
+  background: rgba(14, 244, 223, 0.12);
+}
+
+.workspace-event-list__item span:last-child {
+  color: var(--muted);
+}
+
+.workspace-event-adder {
+  grid-column: 1 / -1;
+}
+
+.workspace-event-adder > input {
+  width: 100%;
+}
+
+.workspace-event-adder > .dt-btn,
+.workspace-event-adder > button {
+  justify-self: start;
+}
+
+.workspace-event-group-title {
+  color: var(--muted);
+  margin: 0 0 8px;
+  font-size: 13px;
 }
 
 .workspace-meta {

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import { DtBadge, DtButton, DtCard, DtHeader, DtTag } from '../../shared/digitable/DigitableUI';
 import { demoSession } from '../../entities/session/fixtures';
-import { type CalendarEvent, type EventFormat, type SessionState } from '../../entities/session/model';
+import { type CalendarEvent, type EventFormat, type EventGroup, type SessionState } from '../../entities/session/model';
 import { createSessionFingerprint, createSessionPayload, isNewerSession, readSessionPayload } from '../../entities/session/hashSession';
+import { addEventToGroup, addGroupWithEvent, buildDraftEvent } from '../../entities/session/sessionOperations';
 import { LanguagePicker, Messages, useTranslate } from '../../shared/i18n';
 import { features, functionalCore, platforms, principles } from './content';
 import './landing.css';
@@ -12,21 +13,36 @@ type AppView = 'landing' | 'workspace';
 
 const EVENT_FORMAT_OPTIONS: ReadonlyArray<EventFormat> = ['organized', 'drop-in', 'remote', 'gift-only'];
 
-const buildDraftSession = (groupName: string, categoryBudget: number): SessionState => ({
-  ...demoSession,
-  groupName,
-  updatedAt: new Date('2026-06-11T08:30:00.000Z').toISOString(),
-  events: demoSession.events.map((event) => ({
-    ...event,
-    categoryBudget: {
-      ...event.categoryBudget,
-      budget: {
-        ...event.categoryBudget.budget,
-        amount: categoryBudget,
+const buildDraftSession = (groupName: string, categoryBudget: number): SessionState => {
+  const firstEvent = demoSession.events[0];
+  const initialSession = {
+    ...demoSession,
+    groupName,
+    updatedAt: new Date('2026-06-11T08:30:00.000Z').toISOString(),
+    events: demoSession.events.map((event) => ({
+      ...event,
+      categoryBudget: {
+        ...event.categoryBudget,
+        budget: {
+          ...event.categoryBudget.budget,
+          amount: categoryBudget,
+        },
       },
-    },
-  })),
-});
+    })),
+    eventGroups: demoSession.eventGroups.map((group) => ({ ...group, eventIds: [...group.eventIds] })),
+  };
+
+  if (!firstEvent) {
+    const fallbackEvent = buildDraftEvent();
+    return {
+      ...initialSession,
+      events: [fallbackEvent],
+      eventGroups: [{ id: 'group-1', title: groupName, eventIds: [fallbackEvent.id] }],
+    };
+  }
+
+  return initialSession;
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const toInputDate = (value: string) => value.slice(0, 10);
@@ -46,11 +62,29 @@ const pickMonthDays = (monthStart: Date): Date[] => {
   });
 };
 
+const findPrimaryEvent = (session: SessionState): CalendarEvent => session.events[0] as CalendarEvent;
+const selectActiveGroup = (
+  session: SessionState,
+  groupId: string,
+  eventId: string
+): [EventGroup | undefined, CalendarEvent | undefined] => {
+  const selectedGroup = session.eventGroups.find((group) => group.id === groupId) ?? session.eventGroups[0];
+  const normalizedEvent = session.events.find(
+    (event) => event.id === eventId && (selectedGroup ? selectedGroup.eventIds.includes(event.id) : false)
+  ) ?? (selectedGroup ? session.events.find((event) => selectedGroup.eventIds.includes(event.id)) : undefined) ?? session.events[0];
+  if (!selectedGroup) {
+    return [session.eventGroups[0], normalizedEvent];
+  }
+  return [selectedGroup, normalizedEvent];
+};
+
 export const LandingPage = () => {
   const intl = useIntl();
   const t = useTranslate();
   const [view, setView] = useState<AppView>('landing');
-  const [sessionState, setSessionState] = useState<SessionState>(() => buildDraftSession(demoSession.groupName, demoSession.events[0].categoryBudget.budget.amount));
+  const [sessionState, setSessionState] = useState<SessionState>(() =>
+    buildDraftSession(demoSession.groupName, demoSession.events[0]?.categoryBudget.budget.amount ?? 3000)
+  );
   const [secret, setSecret] = useState('family-secret');
   const [fingerprint, setFingerprint] = useState('calculating...');
   const [copyState, setCopyState] = useState<Messages>(Messages.ACTION_COPY_PAYLOAD);
@@ -62,25 +96,49 @@ export const LandingPage = () => {
     return new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
   });
   const [showToTop, setShowToTop] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState('');
+  const [groupDraftTitle, setGroupDraftTitle] = useState('Новая группа');
+  const [eventDraftTitle, setEventDraftTitle] = useState('Новое событие');
+
   const session = sessionState;
-  const event = session.events[0] as CalendarEvent;
   const payload = useMemo(() => createSessionPayload(session), [session]);
-
   const isFresh = isNewerSession(session, demoSession);
-
   const participantsCount = session.participants.length;
   const monthDays = useMemo(() => pickMonthDays(calendarMonth), [calendarMonth]);
   const isCurrentMonth = (value: Date) => value.getMonth() === calendarMonth.getMonth() && value.getFullYear() === calendarMonth.getFullYear();
-  const selectedDate = event.date;
-  const budgetInput = event.categoryBudget.budget.amount;
-  const formattedCategoryBudget = intl.formatNumber(budgetInput, { style: 'currency', currency: event.categoryBudget.budget.currency, maximumFractionDigits: 0 });
-  const formattedEventBudget = intl.formatNumber(event.categoryBudget.budget.amount, { style: 'currency', currency: event.categoryBudget.budget.currency, maximumFractionDigits: 0 });
-  const formattedEventDate = intl.formatDate(new Date(event.date), { day: 'numeric', month: 'long', year: 'numeric' });
   const monthLabel = intl.formatDate(calendarMonth, { month: 'long', year: 'numeric' });
   const weekdays = useMemo(() => {
     const weekBase = new Date(2026, 0, 4);
     return Array.from({ length: 7 }, (_, index) => intl.formatDate(new Date(2026, 0, 4 + index), { weekday: 'short' }));
   }, [intl]);
+
+  const [selectedGroup, selectedWorkspaceEvent] = useMemo(
+    () => selectActiveGroup(session, selectedGroupId, selectedEventId),
+    [session, selectedGroupId, selectedEventId]
+  );
+  const workspaceGroupEvents = selectedGroup ? session.events.filter((item) => selectedGroup.eventIds.includes(item.id)) : [];
+  const workspaceEvent = selectedWorkspaceEvent ?? session.events[0];
+  const landingEvent = findPrimaryEvent(session);
+  const selectedDate = workspaceEvent?.date ?? workspaceGroupEvents[0]?.date ?? toIso(new Date());
+
+  const activeBudget = workspaceEvent?.categoryBudget;
+  const formattedCategoryBudget = activeBudget
+    ? intl.formatNumber(activeBudget.budget.amount, { style: 'currency', currency: activeBudget.budget.currency, maximumFractionDigits: 0 })
+    : '';
+  const formattedEventBudget = activeBudget
+    ? intl.formatNumber(activeBudget.budget.amount, { style: 'currency', currency: activeBudget.budget.currency, maximumFractionDigits: 0 })
+    : '';
+  const formattedEventDate = workspaceEvent
+    ? intl.formatDate(new Date(workspaceEvent.date), { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+  const formattedLandingEventBudget = intl.formatNumber(landingEvent.categoryBudget.budget.amount, {
+    style: 'currency',
+    currency: landingEvent.categoryBudget.budget.currency,
+    maximumFractionDigits: 0,
+  });
+  const formattedLandingEventDate = intl.formatDate(new Date(landingEvent.date), { day: 'numeric', month: 'long', year: 'numeric' });
+  const workspaceOpenDate = new Date(selectedDate);
 
   useEffect(() => {
     const syncFromHash = () => setView(window.location.hash === '#workspace' ? 'workspace' : 'landing');
@@ -113,6 +171,26 @@ export const LandingPage = () => {
     return () => window.removeEventListener('scroll', updateToTopVisibility);
   }, []);
 
+  useEffect(() => {
+    if (!session.eventGroups.some((group) => group.id === selectedGroupId)) {
+      setSelectedGroupId(session.eventGroups[0]?.id ?? '');
+      return;
+    }
+    if (!session.events.some((event) => event.id === selectedEventId)) {
+      const fallback = workspaceGroupEvents[0] ?? session.events[0];
+      setSelectedEventId(fallback?.id ?? '');
+    }
+  }, [session.eventGroups, session.events, selectedGroupId, selectedEventId, workspaceGroupEvents]);
+
+  useEffect(() => {
+    const targetGroup = session.eventGroups.find((group) => group.id === selectedGroupId);
+    const eventInGroup = selectedEventId && targetGroup?.eventIds.includes(selectedEventId);
+    if (!targetGroup || !eventInGroup) {
+      const fallback = targetGroup?.eventIds[0] ?? session.events[0]?.id ?? '';
+      setSelectedEventId(fallback);
+    }
+  }, [session.events, selectedGroupId, selectedEventId, session.eventGroups]);
+
   const openWorkspace = () => {
     setView('workspace');
     setImportMessage(null);
@@ -132,17 +210,42 @@ export const LandingPage = () => {
     });
   };
 
-  const updateEvent = (updater: (current: CalendarEvent) => CalendarEvent) => {
+  const updateEvent = (eventId: string, updater: (current: CalendarEvent) => CalendarEvent) => {
     updateSession((current) => ({
       ...current,
-      events: current.events.map((item, index) => (index === 0 ? updater(item) : item)),
+      events: current.events.map((item) => (item.id === eventId ? updater(item) : item)),
     }));
+  };
+
+  const addEvent = (groupId: string, title: string) => {
+    if (!groupId) return;
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    const nextEvent = buildDraftEvent({ title: nextTitle });
+    updateSession((current) => addEventToGroup(current, groupId, nextEvent));
+    setSelectedGroupId(groupId);
+    setSelectedEventId(nextEvent.id);
+    setEventDraftTitle('Новое событие');
+  };
+
+  const addGroup = () => {
+    const groupTitle = groupDraftTitle.trim();
+    if (!groupTitle) return;
+    const newEvent = buildDraftEvent();
+    const newGroupId = `group-${Math.random().toString(16).slice(2)}`;
+    const { group, state } = addGroupWithEvent(session, groupTitle, newEvent, { groupId: newGroupId });
+    updateSession(() => state);
+    setSelectedGroupId(group.id);
+    setSelectedEventId(group.eventIds[0] ?? '');
+    setGroupDraftTitle('Новая группа');
   };
 
   const applyPayload = async () => {
     try {
       const restored = readSessionPayload(importPayload);
       setSessionState(restored);
+      setSelectedGroupId(restored.eventGroups[0]?.id ?? '');
+      setSelectedEventId(restored.events[0]?.id ?? '');
       setImportMessage(Messages.WORKSPACE_IMPORT_SUCCESS);
       setView('workspace');
       window.location.hash = '#workspace';
@@ -152,8 +255,6 @@ export const LandingPage = () => {
       return;
     }
   };
-
-  const openDate = new Date(selectedDate);
 
   const copyPayload = async () => {
     try {
@@ -187,7 +288,12 @@ export const LandingPage = () => {
     return (
       <main className="dt-canvas landing">
         <DtHeader
-          logo={<a className="brand" href="#top"><img src="/images/high_dimension_logo.png" alt="" /><strong>Digitable.HappyCalendar</strong></a>}
+          logo={
+            <a className="brand" href="#top">
+              <img src="/images/high_dimension_logo.png" alt="" />
+              <strong>Digitable.HappyCalendar</strong>
+            </a>
+          }
           nav={[...workspaceNavItems]}
           actions={workspaceHeaderActions}
         />
@@ -236,7 +342,8 @@ export const LandingPage = () => {
                         disabled={!current}
                         key={dayIso + String(day.getDate())}
                         onClick={() => {
-                          updateEvent((currentEvent) => ({ ...currentEvent, date: dayIso }));
+                          if (!workspaceEvent) return;
+                          updateEvent(workspaceEvent.id, (currentEvent) => ({ ...currentEvent, date: dayIso }));
                           setCalendarMonth((monthState) => new Date(day.getFullYear(), day.getMonth(), 1));
                         }}
                         type="button"
@@ -252,7 +359,7 @@ export const LandingPage = () => {
               <dl className="calendar-note">
                 <dt>{t(Messages.WORKSPACE_EVENT_TITLE)}</dt>
                 <dd>
-                  <strong>{event.title}</strong>
+                  <strong>{workspaceEvent?.title ?? t(Messages.WORKSPACE_EMPTY_EVENT)}</strong>
                   <p>{formattedEventDate}</p>
                   <p>{t(Messages.DEMO_PARTICIPANTS, { count: participantsCount })}</p>
                 </dd>
@@ -277,10 +384,35 @@ export const LandingPage = () => {
                 </label>
 
                 <label>
+                  <span>{t(Messages.WORKSPACE_GROUP_TITLE)}</span>
+                  <div className="workspace-groups">
+                    <select
+                      value={selectedGroup?.id ?? ''}
+                      onChange={(value) => setSelectedGroupId(value.target.value)}
+                    >
+                      {session.eventGroups.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.title}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="workspace-groups-actions">
+                      <input value={groupDraftTitle} onChange={(value) => setGroupDraftTitle(value.target.value)} placeholder={t(Messages.WORKSPACE_GROUP_PLACEHOLDER)} />
+                      <DtButton size="sm" onClick={addGroup}>
+                        {t(Messages.WORKSPACE_ADD_GROUP)}
+                      </DtButton>
+                    </div>
+                  </div>
+                </label>
+
+                <label>
                   <span>{t(Messages.WORKSPACE_EVENT_TITLE)}</span>
                   <input
-                    value={event.title}
-                    onChange={(value) => updateEvent((current) => ({ ...current, title: value.target.value }))}
+                    value={workspaceEvent?.title ?? ''}
+                    onChange={(value) => {
+                      if (!workspaceEvent) return;
+                      updateEvent(workspaceEvent.id, (current) => ({ ...current, title: value.target.value }));
+                    }}
                   />
                 </label>
 
@@ -288,13 +420,16 @@ export const LandingPage = () => {
                   <span>{t(Messages.WORKSPACE_EVENT_DATE)}</span>
                   <input
                     type="date"
-                    value={toInputDate(event.date)}
+                    value={toInputDate(workspaceEvent?.date ?? toIso(new Date()))}
                     onChange={(value) => {
+                      if (!workspaceEvent) return;
                       const normalized = toInputDate(value.target.value);
-                      updateEvent((current) => ({ ...current, date: normalized }));
+                      updateEvent(workspaceEvent.id, (current) => ({ ...current, date: normalized }));
                       setCalendarMonth((current) => {
                         const nextDate = new Date(normalized);
-                        return current.getMonth() === nextDate.getMonth() && current.getFullYear() === nextDate.getFullYear() ? current : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1);
+                        return current.getMonth() === nextDate.getMonth() && current.getFullYear() === nextDate.getFullYear()
+                          ? current
+                          : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1);
                       });
                     }}
                   />
@@ -302,7 +437,13 @@ export const LandingPage = () => {
 
                 <label>
                   <span>{t(Messages.WORKSPACE_FORMAT)}</span>
-                  <select value={event.format} onChange={(value) => updateEvent((current) => ({ ...current, format: value.target.value as EventFormat }))}>
+                  <select
+                    value={workspaceEvent?.format ?? EVENT_FORMAT_OPTIONS[0]}
+                    onChange={(value) => {
+                      if (!workspaceEvent) return;
+                      updateEvent(workspaceEvent.id, (current) => ({ ...current, format: value.target.value as EventFormat }));
+                    }}
+                  >
                     {EVENT_FORMAT_OPTIONS.map((entry) => (
                       <option key={entry} value={entry}>
                         {entry}
@@ -312,28 +453,37 @@ export const LandingPage = () => {
                 </label>
 
                 <label className="range-field">
-                  <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: event.categoryBudget.title, budget: formattedCategoryBudget })}</span>
+                  <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: activeBudget?.title ?? '—', budget: formattedCategoryBudget })}</span>
                   <input
                     type="range"
                     min="1000"
                     max="12000"
                     step="500"
-                    value={budgetInput}
+                    value={clamp(activeBudget?.budget.amount ?? 3000, 1000, 12000)}
                     onChange={(value) => {
+                      if (!workspaceEvent || !activeBudget) return;
                       const nextBudget = Number(value.target.value);
-                      updateEvent((currentEvent) => ({
+                      updateEvent(workspaceEvent.id, (currentEvent) => ({
                         ...currentEvent,
                         categoryBudget: { ...currentEvent.categoryBudget, budget: { ...currentEvent.categoryBudget.budget, amount: nextBudget } },
                       }));
                     }}
                   />
                 </label>
+
+                <label className="workspace-event-adder">
+                  <span>{t(Messages.WORKSPACE_ADD_EVENT)}</span>
+                  <input value={eventDraftTitle} onChange={(value) => setEventDraftTitle(value.target.value)} />
+                  <DtButton onClick={() => addEvent(selectedGroup?.id ?? session.eventGroups[0]?.id ?? '', eventDraftTitle)} size="sm">
+                    {t(Messages.WORKSPACE_ADD_EVENT)}
+                  </DtButton>
+                </label>
               </div>
 
               <div className="workspace-event-summary">
-                <h3>{event.title}</h3>
+                <h3>{workspaceEvent?.title ?? ''}</h3>
                 <p>{t(Messages.DEMO_PARTICIPANTS, { count: participantsCount })}</p>
-                <p>{event.categoryBudget.title}</p>
+                <p>{activeBudget?.title}</p>
                 <p>{formattedEventBudget}</p>
               </div>
 
@@ -350,7 +500,9 @@ export const LandingPage = () => {
                 <dl className="hash-list">
                   <div>
                     <dt>{t(Messages.HASH_FINGERPRINT)}</dt>
-                    <dd><code>{fingerprint}</code></dd>
+                    <dd>
+                      <code>{fingerprint}</code>
+                    </dd>
                   </div>
                   <div>
                     <dt>{t(Messages.HASH_ROUND_TRIP)}</dt>
@@ -367,9 +519,12 @@ export const LandingPage = () => {
 
           <div className="workspace-events">
             <DtCard title={t(Messages.WORKSPACE_WISHLIST)} muted>
-              {event.wishlistUpdates.length ? (
+              <p className="workspace-event-group-title">
+                {t(Messages.WORKSPACE_EVENTS)}: {selectedGroup?.title}
+              </p>
+              {workspaceEvent?.wishlistUpdates.length ? (
                 <ul>
-                  {event.wishlistUpdates.map((entry) => (
+                  {workspaceEvent?.wishlistUpdates.map((entry) => (
                     <li key={entry.id}>
                       {entry.title} · {entry.status}
                     </li>
@@ -379,9 +534,32 @@ export const LandingPage = () => {
                 <p>{t(Messages.WORKSPACE_EMPTY_WISHLIST)}</p>
               )}
             </DtCard>
+            <DtCard title={t(Messages.WORKSPACE_EVENTS)} muted>
+              {workspaceGroupEvents.length ? (
+                <ul className="workspace-event-list">
+                  {workspaceGroupEvents.map((entry) => (
+                    <li key={entry.id}>
+                      <button
+                        className={`workspace-event-list__item${entry.id === workspaceEvent?.id ? ' workspace-event-list__item--active' : ''}`}
+                        onClick={() => {
+                          setSelectedEventId(entry.id);
+                          setSelectedGroupId(selectedGroup?.id ?? '');
+                        }}
+                        type="button"
+                      >
+                        <span>{entry.title}</span>
+                        <span>{intl.formatDate(new Date(entry.date), { month: 'numeric', day: 'numeric' })}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{t(Messages.WORKSPACE_EMPTY_EVENTS)}</p>
+              )}
+            </DtCard>
           </div>
           <p className="workspace-meta">
-            <strong>{t(Messages.WORKSPACE_PREVIEW_TITLE)}:</strong> {toIso(openDate)} · {session.events.length} {t(Messages.WORKSPACE_EVENTS)}
+            <strong>{t(Messages.WORKSPACE_PREVIEW_TITLE)}:</strong> {toIso(workspaceOpenDate)} · {session.events.length} {t(Messages.WORKSPACE_EVENTS)}
           </p>
         </section>
       </main>
@@ -390,8 +568,13 @@ export const LandingPage = () => {
 
   return (
     <main className="dt-canvas landing">
-        <DtHeader
-          logo={<a className="brand" href="#top"><img src="/images/high_dimension_logo.png" alt="" /><strong>Digitable.HappyCalendar</strong></a>}
+      <DtHeader
+        logo={
+          <a className="brand" href="#top">
+            <img src="/images/high_dimension_logo.png" alt="" />
+            <strong>Digitable.HappyCalendar</strong>
+          </a>
+        }
         nav={landingNavItems}
         actions={
           <>
@@ -412,7 +595,9 @@ export const LandingPage = () => {
             <DtButton variant="primary" size="lg" onClick={openWorkspace}>
               {t(Messages.ACTION_TRY_DEMO)}
             </DtButton>
-            <a className="dt-btn dt-btn--secondary dt-btn--lg" href="#hash">{t(Messages.ACTION_HOW_HASH_WORKS)}</a>
+            <a className="dt-btn dt-btn--secondary dt-btn--lg" href="#hash">
+              {t(Messages.ACTION_HOW_HASH_WORKS)}
+            </a>
           </div>
           <div className="tags">{principles.map((x) => <DtTag key={x}>{t(x)}</DtTag>)}</div>
         </div>
@@ -436,16 +621,17 @@ export const LandingPage = () => {
               <input value={secret} onChange={(event) => setSecret(event.target.value)} />
             </label>
             <label className="range-field">
-              <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: event.categoryBudget.title, budget: formattedCategoryBudget })}</span>
+              <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: landingEvent.categoryBudget.title, budget: formattedLandingEventBudget })}</span>
               <input
                 type="range"
                 min="1000"
                 max="12000"
                 step="500"
-                value={clamp(budgetInput, 1000, 12000)}
+                value={clamp(landingEvent.categoryBudget.budget.amount, 1000, 12000)}
                 onChange={(event) => {
                   const next = Number(event.target.value);
-                  updateEvent((currentEvent) => ({
+                  if (!landingEvent) return;
+                  updateEvent(landingEvent.id, (currentEvent) => ({
                     ...currentEvent,
                     categoryBudget: { ...currentEvent.categoryBudget, budget: { ...currentEvent.categoryBudget.budget, amount: next } },
                   }));
@@ -456,19 +642,36 @@ export const LandingPage = () => {
 
           <div className="event-card">
             <div>
-              <strong>{event.title}</strong>
-              <p>{formattedEventDate} · {t(Messages.DEMO_PARTICIPANTS, { count: participantsCount })} · {event.categoryBudget.title}</p>
+              <strong>{landingEvent.title}</strong>
+              <p>
+                {formattedLandingEventDate} · {t(Messages.DEMO_PARTICIPANTS, { count: participantsCount })} · {landingEvent.categoryBudget.title}
+              </p>
             </div>
-            <b>{formattedEventBudget}</b>
+            <b>{formattedLandingEventBudget}</b>
           </div>
 
           <dl className="hash-list">
-            <div><dt>{t(Messages.HASH_PAYLOAD)}</dt><dd><code>{shorten(payload)}</code></dd></div>
-            <div><dt>{t(Messages.HASH_FINGERPRINT)}</dt><dd><code>{fingerprint}</code></dd></div>
-            <div><dt>{t(Messages.HASH_ROUND_TRIP)}</dt><dd>{isFresh ? t(Messages.DEMO_ROUND_TRIP_OK) : t(Messages.DEMO_ROUND_TRIP_CHANGED)}</dd></div>
+            <div>
+              <dt>{t(Messages.HASH_PAYLOAD)}</dt>
+              <dd>
+                <code>{shorten(payload)}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{t(Messages.HASH_FINGERPRINT)}</dt>
+              <dd>
+                <code>{fingerprint}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{t(Messages.HASH_ROUND_TRIP)}</dt>
+              <dd>{isFresh ? t(Messages.DEMO_ROUND_TRIP_OK) : t(Messages.DEMO_ROUND_TRIP_CHANGED)}</dd>
+            </div>
           </dl>
 
-          <DtButton variant="ghost" onClick={copyPayload}>{t(copyState)}</DtButton>
+          <DtButton variant="ghost" onClick={copyPayload}>
+            {t(copyState)}
+          </DtButton>
         </aside>
       </section>
 
@@ -477,7 +680,9 @@ export const LandingPage = () => {
         <h2>{t(Messages.IDEA_TITLE)}</h2>
         <div className="idea-visual" aria-hidden="true">
           <img src="/images/happy-calendar-brand-bg.png" alt="" />
-          <span className="idea-visual__mark"><img src="/images/high_dimension_logo.png" alt="" /></span>
+          <span className="idea-visual__mark">
+            <img src="/images/high_dimension_logo.png" alt="" />
+          </span>
         </div>
         <div className="grid">{features.map(([title, text]) => <DtCard key={title} title={t(title)}>{t(text)}</DtCard>)}</div>
       </section>
@@ -490,7 +695,9 @@ export const LandingPage = () => {
         </div>
         <DtCard title={t(Messages.HASH_CORE_TITLE)}>
           <ol>
-            {functionalCore.map((item) => <li key={item}>{t(item)}</li>)}
+            {functionalCore.map((item) => (
+              <li key={item}>{t(item)}</li>
+            ))}
           </ol>
         </DtCard>
       </section>

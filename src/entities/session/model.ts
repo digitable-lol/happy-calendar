@@ -5,4 +5,13 @@ export type CategoryBudget = Readonly<{ category: EventCategory; title: string; 
 export type Participant = Readonly<{ nickname: string; avatarSeed: string }>;
 export type WishlistItem = Readonly<{ id: string; title: string; priority: 'low' | 'medium' | 'high'; status: 'wanted' | 'gifted' | 'archived' }>;
 export type CalendarEvent = Readonly<{ id: string; title: string; date: string; format: EventFormat; categoryBudget: CategoryBudget; wishlistUpdates: ReadonlyArray<WishlistItem> }>;
-export type SessionState = Readonly<{ version: 1; groupName: string; createdAt: string; updatedAt: string; participants: ReadonlyArray<Participant>; events: ReadonlyArray<CalendarEvent> }>;
+export type EventGroup = Readonly<{ id: string; title: string; eventIds: ReadonlyArray<string> }>;
+export type SessionState = Readonly<{
+  version: 1;
+  groupName: string;
+  createdAt: string;
+  updatedAt: string;
+  participants: ReadonlyArray<Participant>;
+  events: ReadonlyArray<CalendarEvent>;
+  eventGroups: ReadonlyArray<EventGroup>;
+}>;
