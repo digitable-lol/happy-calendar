@@ -113,4 +113,25 @@ describe('Landing page hashed session workspace', () => {
       expect(readEventRows(container).length).toBe(2);
     });
   });
+
+  it('shows import error for invalid payload and keeps current workspace unchanged', async () => {
+    const { container } = renderLanding();
+    fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));
+
+    const firstGroup = container.querySelector('.workspace-groups select') as HTMLSelectElement;
+    expect(firstGroup.value).toBe('group-demo-1');
+
+    const payloadTextarea = document.querySelector('.workspace-textarea') as HTMLTextAreaElement;
+    fireEvent.change(payloadTextarea, { target: { value: 'definitely-not-valid-payload' } });
+
+    const importButton = screen.getAllByRole('button', { name: 'Импортировать payload' }).at(-1)!;
+    fireEvent.click(importButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Невалидный payload')).toBeTruthy();
+    });
+
+    expect(firstGroup.value).toBe('group-demo-1');
+    expect(readEventRows(container).length).toBe(1);
+  });
 });
