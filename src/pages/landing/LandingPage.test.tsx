@@ -314,6 +314,59 @@ describe('Landing page hashed session workspace', () => {
     });
   });
 
+  it('cycles through all events on same day when calendar cell is clicked repeatedly', async () => {
+    const importedState = {
+      ...demoSession,
+      groupName: 'Семейный календарь',
+      events: [
+        {
+          ...demoSession.events[0],
+          id: 'import-event-1',
+          title: 'Событие A',
+          date: '2026-07-14',
+          authorNickname: 'Лена',
+          authorAvatarSeed: 'green-leaf',
+        },
+        {
+          ...demoSession.events[1],
+          id: 'import-event-2',
+          title: 'Событие B',
+          date: '2026-07-14',
+          authorNickname: 'Кирилл',
+          authorAvatarSeed: 'blue-sea',
+        },
+      ],
+      eventGroups: [
+        { id: 'import-family', title: 'Семья', eventIds: ['import-event-1', 'import-event-2'] },
+      ],
+    };
+    const importedPayload = createSessionPayload(importedState);
+
+    const { container } = renderLanding();
+    fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));
+    const payloadTextarea = document.querySelector('.workspace-textarea') as HTMLTextAreaElement;
+    const importButton = screen.getByRole('button', { name: 'Импортировать payload' });
+    fireEvent.change(payloadTextarea, { target: { value: importedPayload } });
+    fireEvent.click(importButton);
+
+    await waitFor(() => {
+      const dayCell = container.querySelector('[data-date="2026-07-14"]') as HTMLButtonElement;
+      expect(dayCell).toBeTruthy();
+      fireEvent.click(dayCell);
+    });
+
+    const eventTitleInput = screen.getByLabelText('Название события') as HTMLInputElement;
+    expect(eventTitleInput).toBeTruthy();
+    expect(eventTitleInput.value).toBe('Событие B');
+
+    const dayCell = container.querySelector('[data-date="2026-07-14"]') as HTMLButtonElement;
+    fireEvent.click(dayCell);
+
+    await waitFor(() => {
+      expect(eventTitleInput.value).toBe('Событие A');
+    });
+  });
+
   it('creates family setup in one click from workspace', async () => {
     const { container } = renderLanding();
     fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));

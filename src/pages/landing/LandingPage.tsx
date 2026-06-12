@@ -729,13 +729,17 @@ export const LandingPage = () => {
                     const selected = isSameDate(dayIso, selectedDate);
                     const eventsOnDate = session.events.filter((item) => item.date === dayIso);
                     const hasEvent = eventsOnDate.length > 0;
+                    const currentDateEventIndex = eventsOnDate.findIndex((entry) => entry.id === selectedEventId);
+                    const dateEventsCount = eventsOnDate.length;
                     const firstEvent = eventsOnDate[0];
                     const firstEventAuthor = firstEvent ? resolveAuthorForEvent(firstEvent, session.participants) : undefined;
                     return (
                       <button
                         aria-label={dayIso}
                         title={hasEvent
-                          ? `${firstEvent?.title ?? dayIso} · ${t(Messages.WORKSPACE_EVENT_AUTHOR)}: ${firstEventAuthor?.nickname ?? ''}`
+                          ? `${firstEvent?.title ?? dayIso} · ${dateEventsCount} ${dateEventsCount === 1 ? 'событие' : 'событий'} · ${t(
+                              Messages.WORKSPACE_EVENT_AUTHOR
+                            )}: ${firstEventAuthor?.nickname ?? ''}`
                           : dayIso}
                         className={`calendar-cell${current ? '' : ' calendar-cell--other'}${selected ? ' calendar-cell--selected' : ''}`}
                         disabled={!current}
@@ -743,7 +747,9 @@ export const LandingPage = () => {
                         key={dayIso + String(day.getDate())}
                         onClick={() => {
                           if (hasEvent) {
-                            const nextEvent = eventsOnDate[0];
+                            const hasMultipleOnDate = eventsOnDate.length > 1;
+                            const currentIndex = currentDateEventIndex >= 0 ? currentDateEventIndex : 0;
+                            const nextEvent = eventsOnDate[hasMultipleOnDate ? (currentIndex + 1) % eventsOnDate.length : 0];
                             if (!nextEvent) {
                               return;
                             }
@@ -761,6 +767,7 @@ export const LandingPage = () => {
                       >
                         <span>{formattedCalendarDate(day)}</span>
                         {hasEvent && <i aria-hidden />}
+                        {dateEventsCount > 1 ? <small>{dateEventsCount}</small> : null}
                       </button>
                     );
                   })}

@@ -691,6 +691,24 @@
   background: var(--cyan);
 }
 
+.calendar-cell small {
+  position: absolute;
+  right: 4px;
+  top: 2px;
+  transform: translateY(0);
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(14, 244, 223, 0.16);
+  color: var(--white);
+  border: 1px solid rgba(14, 244, 223, 0.42);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .calendar-cell--other {
   color: rgba(255, 255, 255, .35);
 }
