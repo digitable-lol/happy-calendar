@@ -44,6 +44,7 @@
   "workspace.emptyEvents": "No events in this group yet",
   "workspace.wishlist": "Event wishlist",
   "workspace.emptyWishlist": "No wishlist items yet.",
+  "workspace.deleteEvent": "Delete event",
   "workspace.previewTitle": "Snapshot",
   "workspace.eventsCount": "events",
   "workspace.importSuccess": "Payload loaded",

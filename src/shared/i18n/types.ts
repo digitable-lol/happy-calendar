@@ -42,6 +42,7 @@ export enum Messages {
   WORKSPACE_EMPTY_WISHLIST = 'workspace.emptyWishlist',
   WORKSPACE_PREVIEW_TITLE = 'workspace.previewTitle',
   WORKSPACE_EVENTS = 'workspace.eventsCount',
+  WORKSPACE_DELETE_EVENT = 'workspace.deleteEvent',
   WORKSPACE_IMPORT_SUCCESS = 'workspace.importSuccess',
   WORKSPACE_IMPORT_ERROR = 'workspace.importError',
   HASH_PAYLOAD = 'hash.payload',

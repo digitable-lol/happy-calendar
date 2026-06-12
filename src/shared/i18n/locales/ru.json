@@ -44,6 +44,7 @@
   "workspace.emptyEvents": "В этой группе пока нет событий",
   "workspace.wishlist": "Вишлист события",
   "workspace.emptyWishlist": "Пока нет записей в вишлисте.",
+  "workspace.deleteEvent": "Удалить событие",
   "workspace.previewTitle": "Снимок",
   "workspace.eventsCount": "событий",
   "workspace.importSuccess": "Payload загружен",

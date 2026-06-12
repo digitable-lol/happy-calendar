@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { demoSession } from './fixtures';
-import { addEventToGroup, addGroupWithEvent, buildDraftEvent } from './sessionOperations';
+import { addEventToGroup, addGroupWithEvent, buildDraftEvent, removeEventFromSession } from './sessionOperations';
 import type { SessionState } from './model';
 
 describe('session operations', () => {
@@ -100,5 +100,33 @@ describe('session operations', () => {
     expect(secondUpdated.eventGroups[0].eventIds).toEqual(['seed-event-1']);
     expect(secondUpdated.eventGroups[1].eventIds).toEqual(['seed-event-2']);
     expect(secondUpdated.events).toEqual([first, second]);
+  });
+
+  it('removes one event and detaches it from every group', () => {
+    const base: SessionState = {
+      ...demoSession,
+      events: [
+        { ...demoSession.events[0], id: 'event-1', title: 'Событие 1' },
+        { ...demoSession.events[1], id: 'event-2', title: 'Событие 2' },
+      ],
+      eventGroups: [
+        { id: 'group-family', title: 'Семья', eventIds: ['event-1', 'event-2'] },
+        { id: 'group-team', title: 'Друзья', eventIds: ['event-2'] },
+      ],
+    };
+
+    const next = removeEventFromSession(base, 'event-1');
+
+    expect(next.events).toEqual([base.events[1]]);
+    expect(next.eventGroups).toEqual([
+      { id: 'group-family', title: 'Семья', eventIds: ['event-2'] },
+      { id: 'group-team', title: 'Друзья', eventIds: ['event-2'] },
+    ]);
+  });
+
+  it('does nothing when removing an absent event', () => {
+    const next = removeEventFromSession(demoSession, 'event-missing');
+
+    expect(next).toBe(demoSession);
   });
 });

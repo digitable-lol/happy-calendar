@@ -4,44 +4,55 @@ import { DtBadge, DtButton, DtCard, DtHeader, DtTag } from '../../shared/digitab
 import { demoSession } from '../../entities/session/fixtures';
 import { type CalendarEvent, type EventFormat, type EventGroup, type SessionState } from '../../entities/session/model';
 import { createSessionFingerprint, createSessionPayload, isNewerSession, readSessionPayload } from '../../entities/session/hashSession';
-import { addEventToGroup, addGroupWithEvent, buildDraftEvent } from '../../entities/session/sessionOperations';
+import { addEventToGroup, addGroupWithEvent, buildDraftEvent, removeEventFromSession } from '../../entities/session/sessionOperations';
 import { LanguagePicker, Messages, useTranslate } from '../../shared/i18n';
 import { features, functionalCore, platforms, principles } from './content';
 import './landing.css';
 
 type AppView = 'landing' | 'workspace';
+type DemoEventCount = 1 | 10 | 1000;
 
 const EVENT_FORMAT_OPTIONS: ReadonlyArray<EventFormat> = ['organized', 'drop-in', 'remote', 'gift-only'];
+const DEMO_EVENT_COUNTS: ReadonlyArray<DemoEventCount> = [1, 10, 1000];
 
-const buildDraftSession = (groupName: string, categoryBudget: number): SessionState => {
-  const firstEvent = demoSession.events[0];
-  const initialSession = {
-    ...demoSession,
-    groupName,
-    updatedAt: new Date('2026-06-11T08:30:00.000Z').toISOString(),
-    events: demoSession.events.map((event) => ({
-      ...event,
-      categoryBudget: {
-        ...event.categoryBudget,
-        budget: {
-          ...event.categoryBudget.budget,
-          amount: categoryBudget,
-        },
-      },
-    })),
-    eventGroups: demoSession.eventGroups.map((group) => ({ ...group, eventIds: [...group.eventIds] })),
-  };
+const getDemoCategory = (index: number): string => {
+  if (index % 4 === 0) return 'Семейный ужин';
+  if (index % 4 === 1) return 'День рождения';
+  if (index % 4 === 2) return 'Юбилей';
+  return 'Событие';
+};
 
-  if (!firstEvent) {
-    const fallbackEvent = buildDraftEvent();
-    return {
-      ...initialSession,
-      events: [fallbackEvent],
-      eventGroups: [{ id: 'group-1', title: groupName, eventIds: [fallbackEvent.id] }],
-    };
+const getDemoLabel = (value: number, locale: string): string => {
+  if (locale.startsWith('ru')) {
+    if (value === 1) return '1 событие';
+    return `${value} событий`;
   }
+  if (value === 1) return '1 event';
+  return `${value} events`;
+};
 
-  return initialSession;
+const buildDemoSession = (eventCount: DemoEventCount): SessionState => {
+  const count = Math.max(1, eventCount);
+  const baseDate = new Date(2026, 0, 1);
+  const events = Array.from({ length: count }, (_, index) =>
+    buildDraftEvent({
+      title: `Событие ${index + 1}`,
+      categoryTitle: getDemoCategory(index),
+      date: toIso(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + index)),
+      format: EVENT_FORMAT_OPTIONS[index % EVENT_FORMAT_OPTIONS.length],
+      budget: 3000 + ((index * 500) % 8000),
+      createId: () => `demo-event-${count}-${index + 1}`,
+    })
+  );
+
+  return {
+    ...demoSession,
+    groupName: `Demo ${count}`,
+    createdAt: '2026-06-10T09:00:00.000Z',
+    updatedAt: new Date('2026-06-11T08:30:00.000Z').toISOString(),
+    events,
+    eventGroups: [{ id: `group-demo-${count}`, title: `Демонстрация (${count} событий)`, eventIds: events.map((event) => event.id) }],
+  };
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -82,8 +93,9 @@ export const LandingPage = () => {
   const intl = useIntl();
   const t = useTranslate();
   const [view, setView] = useState<AppView>('landing');
+  const [activeDemoCount, setActiveDemoCount] = useState<DemoEventCount>(DEMO_EVENT_COUNTS[0]);
   const [sessionState, setSessionState] = useState<SessionState>(() =>
-    buildDraftSession(demoSession.groupName, demoSession.events[0]?.categoryBudget.budget.amount ?? 3000)
+    buildDemoSession(activeDemoCount)
   );
   const [secret, setSecret] = useState('family-secret');
   const [fingerprint, setFingerprint] = useState('calculating...');
@@ -238,6 +250,24 @@ export const LandingPage = () => {
     setSelectedGroupId(group.id);
     setSelectedEventId(group.eventIds[0] ?? '');
     setGroupDraftTitle('Новая группа');
+  };
+
+  const applyDemoSession = (eventCount: DemoEventCount) => {
+    setActiveDemoCount(eventCount);
+    setSessionState(buildDemoSession(eventCount));
+    setSelectedGroupId(`group-demo-${eventCount}`);
+    setSelectedEventId(`demo-event-${eventCount}-1`);
+    setImportPayload('');
+  };
+
+  const removeEvent = (eventId: string) => {
+    if (session.events.length <= 1) {
+      return;
+    }
+
+    updateSession((current) => removeEventFromSession(current, eventId));
+    setSelectedEventId('');
+    setImportMessage(null);
   };
 
   const applyPayload = async () => {
@@ -471,6 +501,17 @@ export const LandingPage = () => {
                   />
                 </label>
 
+                <div className="workspace-event-actions">
+                  <DtButton
+                    variant="ghost"
+                    onClick={() => workspaceEvent?.id && removeEvent(workspaceEvent.id)}
+                    disabled={session.events.length <= 1}
+                    size="sm"
+                  >
+                    {t(Messages.WORKSPACE_DELETE_EVENT)}
+                  </DtButton>
+                </div>
+
                 <label className="workspace-event-adder">
                   <span>{t(Messages.WORKSPACE_ADD_EVENT)}</span>
                   <input value={eventDraftTitle} onChange={(value) => setEventDraftTitle(value.target.value)} />
@@ -539,17 +580,26 @@ export const LandingPage = () => {
                 <ul className="workspace-event-list">
                   {workspaceGroupEvents.map((entry) => (
                     <li key={entry.id}>
-                      <button
-                        className={`workspace-event-list__item${entry.id === workspaceEvent?.id ? ' workspace-event-list__item--active' : ''}`}
-                        onClick={() => {
-                          setSelectedEventId(entry.id);
-                          setSelectedGroupId(selectedGroup?.id ?? '');
-                        }}
-                        type="button"
-                      >
-                        <span>{entry.title}</span>
-                        <span>{intl.formatDate(new Date(entry.date), { month: 'numeric', day: 'numeric' })}</span>
-                      </button>
+                      <div className={`workspace-event-list__item${entry.id === workspaceEvent?.id ? ' workspace-event-list__item--active' : ''}`}>
+                        <button
+                          onClick={() => {
+                            setSelectedEventId(entry.id);
+                            setSelectedGroupId(selectedGroup?.id ?? '');
+                          }}
+                          type="button"
+                        >
+                          <span>{entry.title}</span>
+                          <span>{intl.formatDate(new Date(entry.date), { month: 'numeric', day: 'numeric' })}</span>
+                        </button>
+                        <DtButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeEvent(entry.id)}
+                          disabled={session.events.length <= 1}
+                        >
+                          {t(Messages.WORKSPACE_DELETE_EVENT)}
+                        </DtButton>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -609,6 +659,19 @@ export const LandingPage = () => {
               <h2>{session.groupName}</h2>
             </div>
             <span className={isFresh ? 'status status--fresh' : 'status'}>{isFresh ? t(Messages.DEMO_NEWER) : t(Messages.DEMO_SAME)}</span>
+          </div>
+
+          <div className="demo-tabs" role="tablist" aria-label="Demo payload presets">
+            {DEMO_EVENT_COUNTS.map((entry) => (
+              <button
+                className={`demo-tab${activeDemoCount === entry ? ' demo-tab--active' : ''}`}
+                key={entry}
+                onClick={() => applyDemoSession(entry)}
+                type="button"
+              >
+                {getDemoLabel(entry, intl.locale)}
+              </button>
+            ))}
           </div>
 
           <div className="editor-grid">

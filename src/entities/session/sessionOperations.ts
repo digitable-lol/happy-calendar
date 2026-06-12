@@ -75,3 +75,20 @@ export const addGroupWithEvent = (
 
   return { group: nextState.eventGroups[nextState.eventGroups.length - 1]!, state: nextState }
 }
+
+export const removeEventFromSession = (state: SessionState, eventId: string): SessionState => {
+  const nextEvents = state.events.filter((event) => event.id !== eventId)
+  if (nextEvents.length === state.events.length) {
+    return state
+  }
+
+  const eventIds = new Set(nextEvents.map((entry) => entry.id))
+  return {
+    ...state,
+    events: nextEvents,
+    eventGroups: state.eventGroups.map((group) => ({
+      ...group,
+      eventIds: group.eventIds.filter((candidateId) => eventIds.has(candidateId)),
+    })),
+  }
+}
