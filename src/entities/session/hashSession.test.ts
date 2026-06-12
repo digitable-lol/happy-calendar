@@ -4,7 +4,16 @@ import { createSessionFingerprint, createSessionPayload, isNewerSession, readSes
 import { removeEventFromSession } from './sessionOperations';
 import type { SessionState } from './model';
 
-const encodePayload = (value: unknown): string => `hc1.${Buffer.from(JSON.stringify(value)).toString('base64').replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')}`;
+const createLegacyPayload = (value: unknown): string => {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(JSON.stringify(value));
+  let rawPayload = '';
+  for (const byte of bytes) {
+    rawPayload += String.fromCharCode(byte);
+  }
+
+  return `hc1.${btoa(rawPayload).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')}`;
+};
 
 describe('hash session', () => {
   const buildLargeSession = (eventCount: number): SessionState => ({
@@ -147,7 +156,7 @@ describe('hash session', () => {
   });
 
   it('hydrates a legacy payload without event groups', async () => {
-    const legacyPayload = encodePayload({
+    const legacyPayload = createLegacyPayload({
       ...demoSession,
       eventGroups: undefined,
     } as { [key: string]: unknown });

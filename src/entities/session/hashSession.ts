@@ -3,7 +3,16 @@ import { canonicalJson } from './canonicalJson';
 import { demoSession } from './fixtures';
 
 const encoder = new TextEncoder();
-const toBase64Url = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+const BATCH_SIZE = 0x8000;
+const toBase64Url = (bytes: Uint8Array): string => {
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += BATCH_SIZE) {
+    const end = Math.min(index + BATCH_SIZE, bytes.length);
+    binary += String.fromCharCode(...bytes.slice(index, end));
+  }
+
+  return btoa(binary).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+};
 const fromBase64Url = (value: string): Uint8Array => Uint8Array.from(atob(value.replaceAll('-','+').replaceAll('_','/').padEnd(Math.ceil(value.length/4)*4,'=')), (char) => char.charCodeAt(0));
 const toHex = (bytes: Uint8Array): string => Array.from(bytes, (byte) => byte.toString(16).padStart(2,'0')).join('');
 export const createSessionPayload = (state: SessionState): string => `hc1.${toBase64Url(encoder.encode(canonicalJson(state)))}`;
