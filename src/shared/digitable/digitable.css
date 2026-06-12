@@ -117,6 +117,7 @@ select {
 }
 
 .dt-header .dt-btn--primary {
+  text-transform: uppercase;
   color: var(--ink);
 }
 

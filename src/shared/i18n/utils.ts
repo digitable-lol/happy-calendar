@@ -1,9 +1,9 @@
-import { DEFAULT_LANGUAGE, LOCALES } from './constants';
+import { AVAILABLE_LOCALES, DEFAULT_LANGUAGE } from './constants';
 import type { Locale } from './types';
 
 const STORAGE_KEY = 'happy-calendar-locale';
 
-const isLocale = (value: string | null): value is Locale => Object.values(LOCALES).includes(value as Locale);
+const isLocale = (value: string | null): value is Locale => AVAILABLE_LOCALES.includes(value as Locale);
 
 export const getLocale = (): Locale => {
   const storedLocale = localStorage.getItem(STORAGE_KEY);

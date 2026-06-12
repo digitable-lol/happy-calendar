@@ -11,6 +11,20 @@ import './landing.css';
 
 type AppView = 'landing' | 'workspace';
 type DemoEventCount = 1 | 10 | 1000;
+type WorkspaceMode = 'wizard' | 'assistant';
+type WorkspaceWizardPanel = 'events' | 'wishlist';
+type LlmDraftEvent = {
+  title: string;
+  date?: string;
+  format?: EventFormat;
+  categoryTitle?: string;
+  budget?: number;
+};
+
+type LlmDraftPlan = {
+  groupTitle: string;
+  events: LlmDraftEvent[];
+};
 
 const EVENT_FORMAT_OPTIONS: ReadonlyArray<EventFormat> = ['organized', 'drop-in', 'remote', 'gift-only'];
 const DEMO_EVENT_COUNTS: ReadonlyArray<DemoEventCount> = [1, 10, 1000];
@@ -32,6 +46,131 @@ const getDemoLabel = (value: number, locale: string): string => {
 };
 
 const FAMILY_GROUP_TITLE = 'Семья';
+const LLM_FALLBACK_GROUP_TITLE = 'События из чата';
+const LLM_WIZARD_SAMPLE_PROMPT = `Семья:
+День рождения матери | 2026-01-12
+Семейный ужин | 2026-01-13`;
+const LLM_WIZARD_SAMPLE_PLAN: Readonly<LlmDraftPlan> = {
+  groupTitle: 'Семейные даты',
+  events: [
+    { title: 'День рождения матери', date: '2026-01-12', format: 'organized', categoryTitle: 'День рождения', budget: 3000 },
+    { title: 'Семейный ужин', date: '2026-01-13', format: 'gift-only', categoryTitle: 'Семейный ужин', budget: 3000 },
+  ],
+};
+const WISHLIST_PRIORITY_ORDER: ReadonlyArray<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
+const toAssistantSamplePayload = () => JSON.stringify(LLM_WIZARD_SAMPLE_PLAN, null, 2);
+
+const normalizeWishlistStatus = (value: CalendarEvent['wishlistUpdates'][number]['status']) => {
+  const normalized = String(value).toLowerCase();
+  return normalized === 'gifted' || normalized === 'archived' ? normalized : 'wanted';
+};
+
+const normalizeWishlistPriority = (value: CalendarEvent['wishlistUpdates'][number]['priority']) => {
+  const normalized = String(value).toLowerCase();
+  return normalized === 'low' || normalized === 'high' ? normalized : 'medium';
+};
+
+const parseLlmFormat = (value: unknown): EventFormat => {
+  if (value === 'organized' || value === 'drop-in' || value === 'remote' || value === 'gift-only') {
+    return value;
+  }
+  return 'organized';
+};
+
+const normalizeLlmDate = (value: string, fallback: string): string => {
+  const candidate = value.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+  return candidate ?? fallback;
+};
+
+const parseEventLine = (line: string, index: number, fallbackDate: string): LlmDraftEvent => {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return {
+      title: `Событие ${index + 1}`,
+      date: fallbackDate,
+      format: 'organized',
+      budget: 3000,
+    };
+  }
+
+  const parts = trimmed.split('|').map((entry) => entry.trim()).filter(Boolean);
+  const dateFromLine = parts.map((entry) => normalizeLlmDate(entry, '')).find(Boolean);
+  const title = parts.find((entry) => !/\d{4}-\d{2}-\d{2}/.test(entry)) ?? trimmed;
+  const normalized: LlmDraftEvent = {
+    title,
+    date: dateFromLine || fallbackDate,
+    format: parts.some((entry) => /удаленно|remote/.test(entry.toLowerCase())) ? 'remote' : undefined,
+    budget: 3000,
+  };
+  return normalized;
+};
+
+const buildLlmDraftFromText = (text: string, fallbackDate: string): LlmDraftPlan => {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return {
+      groupTitle: LLM_FALLBACK_GROUP_TITLE,
+      events: [{ title: 'Событие 1', date: fallbackDate, format: 'organized', budget: 3000 }],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return {
+        groupTitle: LLM_FALLBACK_GROUP_TITLE,
+          events: parsed
+          .map((item) => ({
+            title: item?.title ?? 'Событие',
+            date: normalizeLlmDate(item?.date ?? '', fallbackDate),
+            format: parseLlmFormat(item?.format),
+            categoryTitle: item?.categoryTitle ?? 'Другое',
+            budget: Number(item?.budget ?? 3000),
+          }))
+          .filter((entry) => Boolean(entry.title)),
+      };
+    }
+
+    if (parsed && typeof parsed === 'object' && 'events' in parsed) {
+      const candidate = Array.isArray((parsed as { events: unknown }).events)
+        ? (parsed as { events: Array<Record<string, unknown>> }).events
+        : [];
+      const parsedGroupTitle = String((parsed as { groupTitle?: string }).groupTitle).trim() || LLM_FALLBACK_GROUP_TITLE;
+      return {
+        groupTitle: parsedGroupTitle || LLM_FALLBACK_GROUP_TITLE,
+        events: candidate
+          .map((entry, index) => ({
+            title: String(entry?.title ?? `Событие ${index + 1}`),
+            date: normalizeLlmDate(String(entry?.date ?? ''), fallbackDate),
+            format: parseLlmFormat(entry?.format),
+            categoryTitle: String(entry?.categoryTitle ?? 'Другое'),
+            budget: Number(entry?.budget ?? 3000),
+          }))
+          .filter((entry) => Boolean(entry.title)),
+      };
+    }
+  } catch {
+    // mocked parser fallback
+  }
+
+  const split = trimmed
+    .replace(/\s*[,;]\s*/g, '\n')
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const titleLine = split.find((entry) => !entry.match(/^\d+\s*событ/iu));
+  const groupTitle = split.find((entry) => entry.match(/^групп[а-яa-z]+/i))?.replace(/^групп[а-яa-z]+:*/i, '').trim() || LLM_FALLBACK_GROUP_TITLE;
+  const fallbackTitle = titleLine ?? LLM_FALLBACK_GROUP_TITLE;
+  const events: LlmDraftEvent[] = split.length
+    ? split.map((line, index) => parseEventLine(line, index, fallbackDate))
+    : [{ title: fallbackTitle, date: fallbackDate, format: 'organized', budget: 3000 }];
+
+  return {
+    groupTitle: groupTitle || LLM_FALLBACK_GROUP_TITLE,
+    events,
+  };
+};
 
 const buildDemoSession = (eventCount: DemoEventCount): SessionState => {
   const count = Math.max(1, eventCount);
@@ -150,6 +289,11 @@ export const LandingPage = () => {
   const [eventDraftTitle, setEventDraftTitle] = useState('Новое событие');
   const [wishlistDraftTitle, setWishlistDraftTitle] = useState('');
   const [wishlistDraftPriority, setWishlistDraftPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('wizard');
+  const [workspaceWizardPanel, setWorkspaceWizardPanel] = useState<WorkspaceWizardPanel>('events');
+  const [assistantPrompt, setAssistantPrompt] = useState(LLM_WIZARD_SAMPLE_PROMPT);
+  const [assistantPayload, setAssistantPayload] = useState('');
+  const [assistantError, setAssistantError] = useState('');
 
   const session = sessionState;
   const payload = useMemo(() => createSessionPayload(session), [session]);
@@ -219,6 +363,20 @@ export const LandingPage = () => {
     },
   ];
 
+  const wishlistStatusLabel = (status: CalendarEvent['wishlistUpdates'][number]['status']) => {
+    const normalized = normalizeWishlistStatus(status);
+    if (normalized === 'gifted') return t(Messages.WORKSPACE_WISHLIST_STATUS_GIFTED);
+    if (normalized === 'archived') return t(Messages.WORKSPACE_WISHLIST_STATUS_ARCHIVED);
+    return t(Messages.WORKSPACE_WISHLIST_STATUS_WANTED);
+  };
+
+  const wishlistPriorityLabel = (priority: CalendarEvent['wishlistUpdates'][number]['priority']) => {
+    const normalized = normalizeWishlistPriority(priority);
+    if (normalized === 'low') return t(Messages.WORKSPACE_PRIORITY_LOW);
+    if (normalized === 'high') return t(Messages.WORKSPACE_PRIORITY_HIGH);
+    return t(Messages.WORKSPACE_PRIORITY_MEDIUM);
+  };
+
   useEffect(() => {
     const syncFromHash = () => setView(window.location.hash === '#workspace' ? 'workspace' : 'landing');
     syncFromHash();
@@ -232,6 +390,18 @@ export const LandingPage = () => {
       setHasCopiedPayload(false);
     }
   }, [payload, view]);
+
+  useEffect(() => {
+    if (workspaceMode === 'assistant') {
+      setAssistantPrompt(LLM_WIZARD_SAMPLE_PROMPT);
+      setAssistantPayload(toAssistantSamplePayload());
+      setAssistantError('');
+      return;
+    }
+
+    setAssistantPayload('');
+    setAssistantError('');
+  }, [workspaceMode]);
 
   useEffect(() => {
     let active = true;
@@ -385,6 +555,62 @@ export const LandingPage = () => {
     }
   };
 
+  const generateAssistantPayload = () => {
+    const plan = buildLlmDraftFromText(assistantPrompt, selectedDate);
+    setAssistantPayload(JSON.stringify(plan, null, 2));
+    setAssistantError('');
+  };
+
+  const applyAssistantPayload = () => {
+    try {
+      const parsed = assistantPayload ? JSON.parse(assistantPayload) as LlmDraftPlan : null;
+      if (!parsed || !Array.isArray(parsed.events) || parsed.events.length === 0) {
+        setAssistantError(t(Messages.WORKSPACE_LLM_INVALID_JSON));
+        return;
+      }
+      const baseDate = familySeedDate;
+      const authorBase = session.participants[session.events.length % Math.max(session.participants.length, 1)];
+      const groupTitle = String(parsed.groupTitle || LLM_FALLBACK_GROUP_TITLE);
+      const groupId = `group-llm-${Date.now()}`;
+      const initialEvent = buildDraftEvent({
+        title: parsed.events[0]?.title || 'Событие',
+        date: normalizeLlmDate(parsed.events[0]?.date ?? '', baseDate),
+        format: parsed.events[0]?.format ?? 'organized',
+        categoryTitle: parsed.events[0]?.categoryTitle,
+        budget: parsed.events[0]?.budget ?? 3000,
+        authorNickname: authorBase?.nickname,
+        authorAvatarSeed: authorBase?.avatarSeed,
+      });
+
+      const { state: baseState, group } = addGroupWithEvent(session, groupTitle, initialEvent, {
+        groupId,
+      });
+
+      const nextState = parsed.events.slice(1).reduce((acc, entry, index) => {
+        const fallback = session.participants[(session.events.length + index) % Math.max(session.participants.length, 1)];
+        const draft = buildDraftEvent({
+          title: entry.title,
+          date: normalizeLlmDate(entry.date ?? '', baseDate),
+          format: entry.format ?? 'organized',
+          categoryTitle: entry.categoryTitle,
+          budget: entry.budget ?? 3000,
+          authorNickname: fallback?.nickname,
+          authorAvatarSeed: fallback?.avatarSeed,
+        });
+        return addEventToGroup(acc, group.id, draft);
+      }, baseState);
+
+      updateSession(() => nextState);
+      setSelectedGroupId(group.id);
+      setSelectedEventId(group.eventIds[0] ?? '');
+      setWorkspaceMode('wizard');
+      setAssistantPayload('');
+      setAssistantError('');
+    } catch {
+      setAssistantError(t(Messages.WORKSPACE_LLM_INVALID_JSON));
+    }
+  };
+
   const copyPayload = async () => {
     try {
       await navigator.clipboard.writeText(payload);
@@ -407,8 +633,8 @@ export const LandingPage = () => {
         {
           id: createWishlistId(),
           title: nextTitle,
-          priority: wishlistDraftPriority,
-          status: 'wanted',
+          priority: normalizeWishlistPriority(wishlistDraftPriority),
+          status: normalizeWishlistStatus('wanted'),
         },
       ],
     }));
@@ -503,9 +729,14 @@ export const LandingPage = () => {
                     const selected = isSameDate(dayIso, selectedDate);
                     const eventsOnDate = session.events.filter((item) => item.date === dayIso);
                     const hasEvent = eventsOnDate.length > 0;
+                    const firstEvent = eventsOnDate[0];
+                    const firstEventAuthor = firstEvent ? resolveAuthorForEvent(firstEvent, session.participants) : undefined;
                     return (
                       <button
                         aria-label={dayIso}
+                        title={hasEvent
+                          ? `${firstEvent?.title ?? dayIso} · ${t(Messages.WORKSPACE_EVENT_AUTHOR)}: ${firstEventAuthor?.nickname ?? ''}`
+                          : dayIso}
                         className={`calendar-cell${current ? '' : ' calendar-cell--other'}${selected ? ' calendar-cell--selected' : ''}`}
                         disabled={!current}
                         data-date={dayIso}
@@ -513,6 +744,9 @@ export const LandingPage = () => {
                         onClick={() => {
                           if (hasEvent) {
                             const nextEvent = eventsOnDate[0];
+                            if (!nextEvent) {
+                              return;
+                            }
                             const targetGroup = session.eventGroups.find((entry) => entry.eventIds.includes(nextEvent.id));
                             if (targetGroup) {
                               setSelectedGroupId(targetGroup.id);
@@ -548,146 +782,248 @@ export const LandingPage = () => {
             </article>
 
             <article className="workspace-controls">
-              <div className="workspace-controls__grid">
-                <label>
-                  <span>{t(Messages.DEMO_GROUP)}</span>
-                  <input
-                    value={session.groupName}
-                    onChange={(value) => {
-                      updateSession((current) => ({ ...current, groupName: value.target.value }));
-                    }}
-                  />
-                </label>
-
-                <label>
-                  <span>{t(Messages.DEMO_SECRET)}</span>
-                  <input value={secret} onChange={(value) => setSecret(value.target.value)} />
-                </label>
-
-                <label>
-                  <span>{t(Messages.WORKSPACE_GROUP_TITLE)}</span>
-                  <div className="workspace-groups">
-                    <select
-                      value={selectedGroup?.id ?? ''}
-                      onChange={(value) => setSelectedGroupId(value.target.value)}
-                    >
-                      {session.eventGroups.map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.title}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="workspace-groups-actions">
-                      <input value={groupDraftTitle} onChange={(value) => setGroupDraftTitle(value.target.value)} placeholder={t(Messages.WORKSPACE_GROUP_PLACEHOLDER)} />
-                      <DtButton size="sm" onClick={addGroup}>
-                        {t(Messages.WORKSPACE_ADD_GROUP)}
-                      </DtButton>
-                    </div>
-                  </div>
-                </label>
-
-                <label>
-                  <span>{t(Messages.WORKSPACE_EVENT_TITLE)}</span>
-                  <input
-                    value={workspaceEvent?.title ?? ''}
-                    onChange={(value) => {
-                      if (!workspaceEvent) return;
-                      updateEvent(workspaceEvent.id, (current) => ({ ...current, title: value.target.value }));
-                    }}
-                  />
-                </label>
-
-                <label>
-                  <span>{t(Messages.WORKSPACE_EVENT_DATE)}</span>
-                  <input
-                    type="date"
-                    value={toInputDate(workspaceEvent?.date ?? toIso(new Date()))}
-                    onChange={(value) => {
-                      if (!workspaceEvent) return;
-                      const normalized = toInputDate(value.target.value);
-                      updateEvent(workspaceEvent.id, (current) => ({ ...current, date: normalized }));
-                      setCalendarMonth((current) => {
-                        const nextDate = new Date(normalized);
-                        return current.getMonth() === nextDate.getMonth() && current.getFullYear() === nextDate.getFullYear()
-                          ? current
-                          : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1);
-                      });
-                    }}
-                  />
-                </label>
-
-                <label>
-                  <span>{t(Messages.WORKSPACE_FORMAT)}</span>
-                  <select
-                    value={workspaceEvent?.format ?? EVENT_FORMAT_OPTIONS[0]}
-                    onChange={(value) => {
-                      if (!workspaceEvent) return;
-                      updateEvent(workspaceEvent.id, (current) => ({ ...current, format: value.target.value as EventFormat }));
-                    }}
-                  >
-                    {EVENT_FORMAT_OPTIONS.map((entry) => (
-                      <option key={entry} value={entry}>
-                        {entry}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  <span>{t(Messages.WORKSPACE_EVENT_AUTHOR)}</span>
-                  <select
-                    value={workspaceEvent?.authorNickname ?? eventAuthor?.nickname ?? ''}
-                    onChange={(value) => {
-                      if (!workspaceEvent) return;
-                      updateEvent(workspaceEvent.id, (current) => ({ ...current, authorNickname: value.target.value }));
-                    }}
-                  >
-                    {session.participants.map((entry) => (
-                      <option key={entry.nickname} value={entry.nickname}>
-                        {entry.nickname}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="range-field">
-                  <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: activeBudget?.title ?? '—', budget: formattedCategoryBudget })}</span>
-                  <input
-                    type="range"
-                    min="1000"
-                    max="12000"
-                    step="500"
-                    value={clamp(activeBudget?.budget.amount ?? 3000, 1000, 12000)}
-                    onChange={(value) => {
-                      if (!workspaceEvent || !activeBudget) return;
-                      const nextBudget = Number(value.target.value);
-                      updateEvent(workspaceEvent.id, (currentEvent) => ({
-                        ...currentEvent,
-                        categoryBudget: { ...currentEvent.categoryBudget, budget: { ...currentEvent.categoryBudget.budget, amount: nextBudget } },
-                      }));
-                    }}
-                  />
-                </label>
-
-                <div className="workspace-event-actions">
-                  <DtButton
-                    variant="ghost"
-                    onClick={() => workspaceEvent?.id && removeEvent(workspaceEvent.id)}
-                    disabled={session.events.length <= 1}
-                    size="sm"
-                  >
-                    {t(Messages.WORKSPACE_DELETE_EVENT)}
-                  </DtButton>
-                </div>
-
-                <label className="workspace-event-adder">
-                  <span>{t(Messages.WORKSPACE_ADD_EVENT)}</span>
-                  <input value={eventDraftTitle} onChange={(value) => setEventDraftTitle(value.target.value)} />
-                  <DtButton onClick={() => addEvent(selectedGroup?.id ?? session.eventGroups[0]?.id ?? '', eventDraftTitle)} size="sm">
-                    {t(Messages.WORKSPACE_ADD_EVENT)}
-                  </DtButton>
-                </label>
+              <div className="workspace-mode-switch" role="tablist" aria-label="Workspace mode">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workspaceMode === 'wizard'}
+                  className={workspaceMode === 'wizard' ? 'workspace-mode-switch__tab workspace-mode-switch__tab--active' : 'workspace-mode-switch__tab'}
+                  onClick={() => setWorkspaceMode('wizard')}
+                >
+                  {t(Messages.WORKSPACE_MODE_WIZARD)}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workspaceMode === 'assistant'}
+                  className={workspaceMode === 'assistant' ? 'workspace-mode-switch__tab workspace-mode-switch__tab--active' : 'workspace-mode-switch__tab'}
+                  onClick={() => setWorkspaceMode('assistant')}
+                >
+                  {t(Messages.WORKSPACE_MODE_ASSISTANT)}
+                </button>
               </div>
+
+              {workspaceMode === 'assistant' ? (
+                <div className="workspace-assistant" aria-label="AI assistant">
+                  <label>
+                    <span>{t(Messages.WORKSPACE_LLM_PROMPT)}</span>
+                    <textarea
+                      className="workspace-assistant__prompt"
+                      rows={3}
+                      value={assistantPrompt}
+                      placeholder={t(Messages.WORKSPACE_LLM_PLACEHOLDER)}
+                      onChange={(event) => setAssistantPrompt(event.target.value)}
+                    />
+                  </label>
+                  <div className="workspace-payload-actions">
+                    <DtButton size="sm" onClick={generateAssistantPayload}>
+                      {t(Messages.WORKSPACE_LLM_GENERATE)}
+                    </DtButton>
+                  </div>
+
+                  <label>
+                    <span>{t(Messages.WORKSPACE_LLM_PREVIEW)}</span>
+                    <textarea
+                      className="workspace-textarea"
+                      rows={5}
+                      value={assistantPayload}
+                      onChange={(event) => setAssistantPayload(event.target.value)}
+                      placeholder='{"groupTitle":"Праздничный план","events":[...] }'
+                    />
+                  </label>
+                  {assistantError ? <p className="workspace-state">{assistantError}</p> : null}
+                  <div className="workspace-payload-actions">
+                    <DtButton onClick={applyAssistantPayload}>
+                      {t(Messages.WORKSPACE_LLM_APPLY)}
+                    </DtButton>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="workspace-sub-switch" role="tablist" aria-label="Workspace wizard panel">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={workspaceWizardPanel === 'events'}
+                      className={workspaceWizardPanel === 'events' ? 'workspace-sub-switch__tab workspace-mode-switch__tab--active' : 'workspace-sub-switch__tab'}
+                      onClick={() => setWorkspaceWizardPanel('events')}
+                    >
+                      <span className="workspace-sub-switch__icon" aria-hidden="true">✚</span>
+                      {t(Messages.WORKSPACE_PANEL_EVENTS)}
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={workspaceWizardPanel === 'wishlist'}
+                      className={workspaceWizardPanel === 'wishlist' ? 'workspace-sub-switch__tab workspace-mode-switch__tab--active' : 'workspace-sub-switch__tab'}
+                      onClick={() => setWorkspaceWizardPanel('wishlist')}
+                    >
+                      <span className="workspace-sub-switch__icon" aria-hidden="true">♡</span>
+                      {t(Messages.WORKSPACE_PANEL_WISHLIST)}
+                    </button>
+                  </div>
+                  <div className="workspace-controls__grid">
+                    <label>
+                      <span>{t(Messages.WORKSPACE_GROUP_TITLE)}</span>
+                      <div className="workspace-groups">
+                        <select
+                          value={selectedGroup?.id ?? ''}
+                          onChange={(value) => setSelectedGroupId(value.target.value)}
+                        >
+                          {session.eventGroups.map((entry) => (
+                            <option key={entry.id} value={entry.id}>
+                              {entry.title}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="workspace-groups-actions">
+                          <input
+                            value={groupDraftTitle}
+                            onChange={(value) => setGroupDraftTitle(value.target.value)}
+                            placeholder={t(Messages.WORKSPACE_GROUP_PLACEHOLDER)}
+                          />
+                          <DtButton size="sm" onClick={addGroup}>
+                            <span className="workspace-event-actions__icon" aria-hidden="true">＋</span>
+                            {t(Messages.WORKSPACE_ADD_GROUP)}
+                          </DtButton>
+                        </div>
+                      </div>
+                    </label>
+
+                    {workspaceWizardPanel === 'events' ? (
+                      <>
+                        <label>
+                          <span>{t(Messages.WORKSPACE_EVENT_TITLE)}</span>
+                          <input
+                            value={workspaceEvent?.title ?? ''}
+                            onChange={(value) => {
+                              if (!workspaceEvent) return;
+                              updateEvent(workspaceEvent.id, (current) => ({ ...current, title: value.target.value }));
+                            }}
+                          />
+                        </label>
+                        <label>
+                          <span>{t(Messages.WORKSPACE_EVENT_DATE)}</span>
+                          <input
+                            type="date"
+                            value={toInputDate(workspaceEvent?.date ?? toIso(new Date()))}
+                            onChange={(value) => {
+                              if (!workspaceEvent) return;
+                              const normalized = toInputDate(value.target.value);
+                              updateEvent(workspaceEvent.id, (current) => ({ ...current, date: normalized }));
+                              setCalendarMonth((current) => {
+                                const nextDate = new Date(normalized);
+                                return current.getMonth() === nextDate.getMonth() && current.getFullYear() === nextDate.getFullYear()
+                                  ? current
+                                  : new Date(nextDate.getFullYear(), nextDate.getMonth(), 1);
+                              });
+                            }}
+                          />
+                        </label>
+
+                        <label>
+                          <span>{t(Messages.WORKSPACE_FORMAT)}</span>
+                          <select
+                            value={workspaceEvent?.format ?? EVENT_FORMAT_OPTIONS[0]}
+                            onChange={(value) => {
+                              if (!workspaceEvent) return;
+                              updateEvent(workspaceEvent.id, (current) => ({ ...current, format: value.target.value as EventFormat }));
+                            }}
+                          >
+                            {EVENT_FORMAT_OPTIONS.map((entry) => (
+                              <option key={entry} value={entry}>
+                                {entry}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="range-field">
+                          <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: activeBudget?.title ?? '—', budget: formattedCategoryBudget })}</span>
+                          <input
+                            type="range"
+                            min="1000"
+                            max="12000"
+                            step="500"
+                            value={clamp(activeBudget?.budget.amount ?? 3000, 1000, 12000)}
+                            onChange={(value) => {
+                              if (!workspaceEvent || !activeBudget) return;
+                              const nextBudget = Number(value.target.value);
+                              updateEvent(workspaceEvent.id, (currentEvent) => ({
+                                ...currentEvent,
+                                categoryBudget: { ...currentEvent.categoryBudget, budget: { ...currentEvent.categoryBudget.budget, amount: nextBudget } },
+                              }));
+                            }}
+                          />
+                        </label>
+
+                      <label className="workspace-event-adder">
+                        <span>{t(Messages.WORKSPACE_ADD_EVENT)}</span>
+                        <input
+                          aria-label={t(Messages.WORKSPACE_ADD_EVENT)}
+                          value={eventDraftTitle}
+                            onChange={(value) => setEventDraftTitle(value.target.value)}
+                          />
+                          <DtButton
+                            className="workspace-icon-button"
+                            onClick={() => addEvent(selectedGroup?.id ?? session.eventGroups[0]?.id ?? '', eventDraftTitle)}
+                            size="sm"
+                            aria-label={t(Messages.WORKSPACE_ADD_EVENT)}
+                          >
+                            <span className="workspace-event-actions__icon" aria-hidden="true">＋</span>
+                            <span>{t(Messages.WORKSPACE_ADD_EVENT)}</span>
+                          </DtButton>
+                        </label>
+
+                        <div className="workspace-event-actions">
+                          <DtButton
+                            variant="ghost"
+                            onClick={() => workspaceEvent?.id && removeEvent(workspaceEvent.id)}
+                            disabled={session.events.length <= 1}
+                            size="sm"
+                            className="workspace-icon-button"
+                            aria-label={t(Messages.WORKSPACE_DELETE_EVENT)}
+                          >
+                            <span className="workspace-event-actions__icon" aria-hidden="true">🗑</span>
+                            <span className="sr-only">{t(Messages.WORKSPACE_DELETE_EVENT)}</span>
+                          </DtButton>
+                        </div>
+                      </>
+                    ) : (
+                      <label className="workspace-wishlist-adder workspace-wishlist-adder--stacked">
+                        <span>{t(Messages.WORKSPACE_WISHLIST_ADD)}</span>
+                        <div className="workspace-wishlist-adder__inline">
+                          <input
+                            aria-label={t(Messages.WORKSPACE_WISHLIST_PLACEHOLDER)}
+                            value={wishlistDraftTitle}
+                            onChange={(event) => setWishlistDraftTitle(event.target.value)}
+                            placeholder={t(Messages.WORKSPACE_WISHLIST_PLACEHOLDER)}
+                          />
+                          <select
+                            value={wishlistDraftPriority}
+                            onChange={(event) => {
+                              setWishlistDraftPriority(event.target.value as 'low' | 'medium' | 'high');
+                            }}
+                          >
+                            {WISHLIST_PRIORITY_ORDER.map((priority) => (
+                              <option key={priority} value={priority}>
+                                {priority === 'low'
+                                  ? t(Messages.WORKSPACE_PRIORITY_LOW)
+                                  : priority === 'high'
+                                    ? t(Messages.WORKSPACE_PRIORITY_HIGH)
+                                    : t(Messages.WORKSPACE_PRIORITY_MEDIUM)}
+                              </option>
+                            ))}
+                          </select>
+                          <DtButton size="sm" onClick={addToWishlist}>
+                            {t(Messages.WORKSPACE_WISHLIST_ADD)}
+                          </DtButton>
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                </>
+              )}
 
               <div className="workspace-event-summary">
                 <h3>{workspaceEvent?.title ?? ''}</h3>
@@ -698,6 +1034,19 @@ export const LandingPage = () => {
 
               <div className="workspace-card">
                 <div className="dt-tag">{t(Messages.HASH_PAYLOAD)}</div>
+                <label>
+                  <span>{t(Messages.DEMO_GROUP)}</span>
+                  <input
+                    value={session.groupName}
+                    onChange={(value) => {
+                      updateSession((current) => ({ ...current, groupName: value.target.value }));
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>{t(Messages.DEMO_SECRET)}</span>
+                  <input value={secret} onChange={(value) => setSecret(value.target.value)} />
+                </label>
                 <textarea className="workspace-textarea" rows={5} value={importPayload} onChange={(event) => setImportPayload(event.target.value)} />
                 <div className="workspace-payload-actions">
                   <DtButton variant="ghost" onClick={copyPayload}>
@@ -731,31 +1080,15 @@ export const LandingPage = () => {
               <p className="workspace-event-group-title">
                 {t(Messages.WORKSPACE_EVENTS)}: {selectedGroup?.title}
               </p>
-              <div className="workspace-wishlist-adder">
-                <input
-                  value={wishlistDraftTitle}
-                  onChange={(event) => setWishlistDraftTitle(event.target.value)}
-                  placeholder={t(Messages.WORKSPACE_WISHLIST_PLACEHOLDER)}
-                />
-                <select
-                  value={wishlistDraftPriority}
-                  onChange={(event) => {
-                    setWishlistDraftPriority(event.target.value as 'low' | 'medium' | 'high');
-                  }}
-                >
-                  <option value="low">{t(Messages.WORKSPACE_PRIORITY_LOW)}</option>
-                  <option value="medium">{t(Messages.WORKSPACE_PRIORITY_MEDIUM)}</option>
-                  <option value="high">{t(Messages.WORKSPACE_PRIORITY_HIGH)}</option>
-                </select>
-                <DtButton size="sm" onClick={addToWishlist}>
-                  {t(Messages.WORKSPACE_WISHLIST_ADD)}
-                </DtButton>
-              </div>
               {workspaceEvent?.wishlistUpdates.length ? (
-                <ul>
+                <ul className="workspace-wishlist-list">
                   {workspaceEvent?.wishlistUpdates.map((entry) => (
                     <li key={entry.id}>
-                      {entry.title} · {entry.status}
+                      <strong>{entry.title}</strong>
+                      <span>
+                        {t(Messages.WORKSPACE_WISHLIST_PRIORITY)}: {wishlistPriorityLabel(entry.priority)} · {t(Messages.WORKSPACE_WISHLIST_STATUS)}:{' '}
+                        {wishlistStatusLabel(entry.status)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -782,10 +1115,12 @@ export const LandingPage = () => {
                         <DtButton
                           variant="ghost"
                           size="sm"
+                          className="workspace-icon-button"
                           onClick={() => removeEvent(entry.id)}
                           disabled={session.events.length <= 1}
                         >
-                          {t(Messages.WORKSPACE_DELETE_EVENT)}
+                          <span className="workspace-event-actions__icon" aria-hidden="true">🗑</span>
+                          <span className="sr-only">{t(Messages.WORKSPACE_DELETE_EVENT)}</span>
                         </DtButton>
                       </div>
                     </li>
