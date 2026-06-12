@@ -6,14 +6,16 @@ export const demoSession: SessionState = {
   createdAt: '2026-06-10T09:00:00.000Z',
   updatedAt: '2026-06-10T09:00:00.000Z',
   participants: [
-    { nickname: 'pixel-marat', avatarSeed: 'cyan-fox' },
-    { nickname: 'luna-party', avatarSeed: 'purple-cat' },
-    { nickname: 'budget-owl', avatarSeed: 'green-owl' },
+    { nickname: 'Ты', avatarSeed: 'cyan-fox' },
+    { nickname: 'Жена', avatarSeed: 'purple-cat' },
+    { nickname: 'Семья', avatarSeed: 'green-owl' },
   ],
   events: [
     {
       id: 'event-birthday-001',
       title: 'День рождения Лены',
+      authorNickname: 'Ты',
+      authorAvatarSeed: 'cyan-fox',
       date: '2026-07-14',
       format: 'organized',
       categoryBudget: {
@@ -26,6 +28,8 @@ export const demoSession: SessionState = {
     {
       id: 'event-holiday-002',
       title: 'Праздник Дня победы',
+      authorNickname: 'Жена',
+      authorAvatarSeed: 'purple-cat',
       date: '2026-07-29',
       format: 'drop-in',
       categoryBudget: {

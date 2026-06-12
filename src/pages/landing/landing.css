@@ -413,6 +413,31 @@
   gap: 16px;
 }
 
+.workspace-hint {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.workspace-quick-start {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(14, 244, 223, 0.07);
+}
+
+.workspace-quick-start p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .workspace-head h2 {
   margin: 0;
   max-width: none;
@@ -707,14 +732,33 @@
   grid-column: 1 / -1;
 }
 
+.workspace-wishlist-adder {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.2fr) auto auto;
+  margin: 0 0 10px;
+}
+
+.workspace-wishlist-adder > select {
+  width: 110px;
+}
+
 .workspace-event-adder > input {
   width: 100%;
 }
 
 .workspace-event-adder > .dt-btn,
-.workspace-event-adder > button {
-  justify-self: start;
-}
+  .workspace-event-adder > button {
+    justify-self: start;
+  }
+
+  .workspace-wishlist-adder {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-wishlist-adder > select {
+    width: 100%;
+  }
 
 .workspace-event-group-title {
   color: var(--muted);

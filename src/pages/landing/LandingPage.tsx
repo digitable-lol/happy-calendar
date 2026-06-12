@@ -31,10 +31,12 @@ const getDemoLabel = (value: number, locale: string): string => {
   return `${value} events`;
 };
 
+const FAMILY_GROUP_TITLE = 'Семья';
+
 const buildDemoSession = (eventCount: DemoEventCount): SessionState => {
   const count = Math.max(1, eventCount);
   const baseDate = new Date(2026, 0, 1);
-  const events = Array.from({ length: count }, (_, index) =>
+  const baseEvents = Array.from({ length: count }, (_, index) =>
     buildDraftEvent({
       title: `Событие ${index + 1}`,
       categoryTitle: getDemoCategory(index),
@@ -44,6 +46,14 @@ const buildDemoSession = (eventCount: DemoEventCount): SessionState => {
       createId: () => `demo-event-${count}-${index + 1}`,
     })
   );
+  const events = baseEvents.map((event, index) => {
+    const author = demoSession.participants[index % demoSession.participants.length];
+    return {
+      ...event,
+      authorNickname: author?.nickname,
+      authorAvatarSeed: author?.avatarSeed,
+    };
+  });
 
   return {
     ...demoSession,
@@ -60,6 +70,31 @@ const toInputDate = (value: string) => value.slice(0, 10);
 const toIso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const isSameDate = (left: string, right: string) => left === right;
 const shorten = (value: string, start = 34, end = 16) => `${value.slice(0, start)}...${value.slice(-end)}`;
+const resolveAuthorForEvent = (event: CalendarEvent | undefined, participants: ReadonlyArray<{ nickname: string; avatarSeed: string }>) => {
+  if (!event) return participants[0];
+  if (event.authorNickname) {
+    return (
+      participants.find((entry) => entry.nickname === event.authorNickname) ?? {
+        nickname: event.authorNickname,
+        avatarSeed: event.authorAvatarSeed ?? `${event.authorNickname.toLowerCase()}-seed`,
+      }
+    );
+  }
+
+  if (!participants.length) {
+    return { nickname: 'Неизвестный', avatarSeed: 'default-avatar' };
+  }
+
+  let hash = 0;
+  for (let index = 0; index < event.id.length; index++) {
+    hash = (hash * 31 + event.id.charCodeAt(index)) % 97_237;
+  }
+  return participants[hash % participants.length];
+};
+const createWishlistId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `wishlist-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const pickMonthDays = (monthStart: Date): Date[] => {
   const firstDay = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1);
@@ -112,6 +147,8 @@ export const LandingPage = () => {
   const [selectedEventId, setSelectedEventId] = useState('');
   const [groupDraftTitle, setGroupDraftTitle] = useState('Новая группа');
   const [eventDraftTitle, setEventDraftTitle] = useState('Новое событие');
+  const [wishlistDraftTitle, setWishlistDraftTitle] = useState('');
+  const [wishlistDraftPriority, setWishlistDraftPriority] = useState<'low' | 'medium' | 'high'>('medium');
 
   const session = sessionState;
   const payload = useMemo(() => createSessionPayload(session), [session]);
@@ -144,6 +181,7 @@ export const LandingPage = () => {
   const formattedEventDate = workspaceEvent
     ? intl.formatDate(new Date(workspaceEvent.date), { day: 'numeric', month: 'long', year: 'numeric' })
     : '';
+  const eventAuthor = resolveAuthorForEvent(workspaceEvent, session.participants);
   const formattedLandingEventBudget = intl.formatNumber(landingEvent.categoryBudget.budget.amount, {
     style: 'currency',
     currency: landingEvent.categoryBudget.budget.currency,
@@ -151,6 +189,9 @@ export const LandingPage = () => {
   });
   const formattedLandingEventDate = intl.formatDate(new Date(landingEvent.date), { day: 'numeric', month: 'long', year: 'numeric' });
   const workspaceOpenDate = new Date(selectedDate);
+  const hasFamilyGroup = session.eventGroups.some((entry) => entry.title.toLowerCase() === FAMILY_GROUP_TITLE.toLowerCase());
+  const familySeedDate = session.events[0]?.date ?? toIso(new Date());
+  const nextFamilyAuthor = session.participants[0];
 
   useEffect(() => {
     const syncFromHash = () => setView(window.location.hash === '#workspace' ? 'workspace' : 'landing');
@@ -233,7 +274,12 @@ export const LandingPage = () => {
     if (!groupId) return;
     const nextTitle = title.trim();
     if (!nextTitle) return;
-    const nextEvent = buildDraftEvent({ title: nextTitle });
+    const nextAuthor = session.participants[session.events.length % Math.max(session.participants.length, 1)];
+    const nextEvent = buildDraftEvent({
+      title: nextTitle,
+      authorNickname: nextAuthor?.nickname,
+      authorAvatarSeed: nextAuthor?.avatarSeed,
+    });
     updateSession((current) => addEventToGroup(current, groupId, nextEvent));
     setSelectedGroupId(groupId);
     setSelectedEventId(nextEvent.id);
@@ -243,13 +289,39 @@ export const LandingPage = () => {
   const addGroup = () => {
     const groupTitle = groupDraftTitle.trim();
     if (!groupTitle) return;
-    const newEvent = buildDraftEvent();
+    const nextAuthor = session.participants[session.events.length % Math.max(session.participants.length, 1)];
+    const newEvent = buildDraftEvent({
+      authorNickname: nextAuthor?.nickname,
+      authorAvatarSeed: nextAuthor?.avatarSeed,
+    });
     const newGroupId = `group-${Math.random().toString(16).slice(2)}`;
     const { group, state } = addGroupWithEvent(session, groupTitle, newEvent, { groupId: newGroupId });
     updateSession(() => state);
     setSelectedGroupId(group.id);
     setSelectedEventId(group.eventIds[0] ?? '');
     setGroupDraftTitle('Новая группа');
+  };
+
+  const ensureFamilyGroup = () => {
+    const existingFamilyGroup = session.eventGroups.find((entry) => entry.title.toLowerCase() === FAMILY_GROUP_TITLE.toLowerCase());
+    if (existingFamilyGroup) {
+      setSelectedGroupId(existingFamilyGroup.id);
+      setSelectedEventId(existingFamilyGroup.eventIds[0] ?? '');
+      return;
+    }
+
+    const nextEvent = buildDraftEvent({
+      title: 'Семейный вечер',
+      date: familySeedDate,
+      authorNickname: nextFamilyAuthor?.nickname,
+      authorAvatarSeed: nextFamilyAuthor?.avatarSeed,
+    });
+    const { group, state } = addGroupWithEvent(session, FAMILY_GROUP_TITLE, nextEvent, {
+      groupId: `family-${Date.now()}`,
+    });
+    updateSession(() => state);
+    setSelectedGroupId(group.id);
+    setSelectedEventId(group.eventIds[0] ?? '');
   };
 
   const applyDemoSession = (eventCount: DemoEventCount) => {
@@ -297,6 +369,24 @@ export const LandingPage = () => {
   };
 
   const formattedCalendarDate = (value: Date) => intl.formatDate(value, { day: 'numeric' });
+  const addToWishlist = () => {
+    const nextTitle = wishlistDraftTitle.trim();
+    if (!workspaceEvent || !nextTitle) return;
+    updateEvent(workspaceEvent.id, (currentEvent) => ({
+      ...currentEvent,
+      wishlistUpdates: [
+        ...currentEvent.wishlistUpdates,
+        {
+          id: createWishlistId(),
+          title: nextTitle,
+          priority: wishlistDraftPriority,
+          status: 'wanted',
+        },
+      ],
+    }));
+    setWishlistDraftTitle('');
+    setWishlistDraftPriority('medium');
+  };
   const workspaceNavItems = [{ label: t(Messages.NAV_DEMO), href: '#workspace', tone: 'accent' }] as const;
   const landingNavItems = [
     { label: t(Messages.NAV_DEMO), href: '#workspace', tone: 'accent' },
@@ -333,6 +423,13 @@ export const LandingPage = () => {
             <h2>{t(Messages.WORKSPACE_TITLE)}</h2>
             <span className={isFresh ? 'status status--fresh' : 'status'}>{isFresh ? t(Messages.DEMO_NEWER) : t(Messages.DEMO_SAME)}</span>
           </div>
+          <p className="workspace-hint">{t(Messages.WORKSPACE_FAMILY_HINT)}</p>
+          <div className="workspace-quick-start">
+            <p>{hasFamilyGroup ? t(Messages.WORKSPACE_OPEN_FAMILY_GROUP) : t(Messages.WORKSPACE_CREATE_FAMILY_GROUP)}</p>
+            <DtButton onClick={ensureFamilyGroup} size="sm" variant={hasFamilyGroup ? 'ghost' : 'secondary'}>
+              {hasFamilyGroup ? t(Messages.WORKSPACE_OPEN_EXISTING_FAMILY_GROUP) : t(Messages.WORKSPACE_CREATE_FAMILY_GROUP)}
+            </DtButton>
+          </div>
 
           <div className="workspace-grid">
             <article className="calendar-shell">
@@ -365,15 +462,26 @@ export const LandingPage = () => {
                     const dayIso = toIso(day);
                     const current = isCurrentMonth(day);
                     const selected = isSameDate(dayIso, selectedDate);
-                    const hasEvent = session.events.some((item) => item.date === dayIso);
+                    const eventsOnDate = session.events.filter((item) => item.date === dayIso);
+                    const hasEvent = eventsOnDate.length > 0;
                     return (
                       <button
+                        aria-label={dayIso}
                         className={`calendar-cell${current ? '' : ' calendar-cell--other'}${selected ? ' calendar-cell--selected' : ''}`}
                         disabled={!current}
+                        data-date={dayIso}
                         key={dayIso + String(day.getDate())}
                         onClick={() => {
-                          if (!workspaceEvent) return;
-                          updateEvent(workspaceEvent.id, (currentEvent) => ({ ...currentEvent, date: dayIso }));
+                          if (hasEvent) {
+                            const nextEvent = eventsOnDate[0];
+                            const targetGroup = session.eventGroups.find((entry) => entry.eventIds.includes(nextEvent.id));
+                            if (targetGroup) {
+                              setSelectedGroupId(targetGroup.id);
+                            }
+                            setSelectedEventId(nextEvent.id);
+                          } else if (workspaceEvent) {
+                            updateEvent(workspaceEvent.id, (currentEvent) => ({ ...currentEvent, date: dayIso }));
+                          }
                           setCalendarMonth((monthState) => new Date(day.getFullYear(), day.getMonth(), 1));
                         }}
                         type="button"
@@ -391,6 +499,10 @@ export const LandingPage = () => {
                 <dd>
                   <strong>{workspaceEvent?.title ?? t(Messages.WORKSPACE_EMPTY_EVENT)}</strong>
                   <p>{formattedEventDate}</p>
+                  <p>
+                    {t(Messages.WORKSPACE_EVENT_AUTHOR)}: {eventAuthor?.nickname}
+                  </p>
+                  <p>Аватар: {eventAuthor?.avatarSeed}</p>
                   <p>{t(Messages.DEMO_PARTICIPANTS, { count: participantsCount })}</p>
                 </dd>
               </dl>
@@ -482,6 +594,23 @@ export const LandingPage = () => {
                   </select>
                 </label>
 
+                <label>
+                  <span>{t(Messages.WORKSPACE_EVENT_AUTHOR)}</span>
+                  <select
+                    value={workspaceEvent?.authorNickname ?? eventAuthor?.nickname ?? ''}
+                    onChange={(value) => {
+                      if (!workspaceEvent) return;
+                      updateEvent(workspaceEvent.id, (current) => ({ ...current, authorNickname: value.target.value }));
+                    }}
+                  >
+                    {session.participants.map((entry) => (
+                      <option key={entry.nickname} value={entry.nickname}>
+                        {entry.nickname}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="range-field">
                   <span>{t(Messages.DEMO_CATEGORY_BUDGET, { category: activeBudget?.title ?? '—', budget: formattedCategoryBudget })}</span>
                   <input
@@ -563,6 +692,26 @@ export const LandingPage = () => {
               <p className="workspace-event-group-title">
                 {t(Messages.WORKSPACE_EVENTS)}: {selectedGroup?.title}
               </p>
+              <div className="workspace-wishlist-adder">
+                <input
+                  value={wishlistDraftTitle}
+                  onChange={(event) => setWishlistDraftTitle(event.target.value)}
+                  placeholder={t(Messages.WORKSPACE_WISHLIST_PLACEHOLDER)}
+                />
+                <select
+                  value={wishlistDraftPriority}
+                  onChange={(event) => {
+                    setWishlistDraftPriority(event.target.value as 'low' | 'medium' | 'high');
+                  }}
+                >
+                  <option value="low">{t(Messages.WORKSPACE_PRIORITY_LOW)}</option>
+                  <option value="medium">{t(Messages.WORKSPACE_PRIORITY_MEDIUM)}</option>
+                  <option value="high">{t(Messages.WORKSPACE_PRIORITY_HIGH)}</option>
+                </select>
+                <DtButton size="sm" onClick={addToWishlist}>
+                  {t(Messages.WORKSPACE_WISHLIST_ADD)}
+                </DtButton>
+              </div>
               {workspaceEvent?.wishlistUpdates.length ? (
                 <ul>
                   {workspaceEvent?.wishlistUpdates.map((entry) => (

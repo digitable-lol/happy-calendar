@@ -134,4 +134,85 @@ describe('Landing page hashed session workspace', () => {
     expect(firstGroup.value).toBe('group-demo-1');
     expect(readEventRows(container).length).toBe(1);
   });
+
+  it('allows selecting calendar day and sees event owner info', async () => {
+    const importedState = {
+      ...demoSession,
+      groupName: 'Семейный набор',
+      events: [
+        {
+          ...demoSession.events[0],
+          id: 'import-event-1',
+          date: '2026-07-14',
+          authorNickname: 'Анна',
+          authorAvatarSeed: 'cyan-fox',
+        },
+        {
+          ...demoSession.events[1],
+          id: 'import-event-2',
+          date: '2026-07-29',
+          authorNickname: 'Сергей',
+          authorAvatarSeed: 'purple-cat',
+        },
+      ],
+      eventGroups: [
+        { id: 'import-family', title: 'Семья', eventIds: ['import-event-1', 'import-event-2'] },
+      ],
+    };
+    const importedPayload = createSessionPayload(importedState);
+
+    const { container } = renderLanding();
+    fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));
+    const payloadTextarea = document.querySelector('.workspace-textarea') as HTMLTextAreaElement;
+    const importButton = screen.getAllByRole('button', { name: 'Импортировать payload' }).at(-1)!;
+
+    fireEvent.change(payloadTextarea, { target: { value: importedPayload } });
+    fireEvent.click(importButton);
+
+    await waitFor(() => {
+      const groupSelect = container.querySelector('.workspace-groups select') as HTMLSelectElement;
+      expect(groupSelect.value).toBe('import-family');
+    });
+
+    const firstDayCell = container.querySelector('[data-date="2026-07-14"]') as HTMLButtonElement;
+    const secondDayCell = container.querySelector('[data-date="2026-07-29"]') as HTMLButtonElement;
+
+    fireEvent.click(firstDayCell);
+    await waitFor(() => {
+      expect(screen.getByText(/Анна/)).toBeTruthy();
+      expect(screen.getByText(/Аватар/)).toBeTruthy();
+    });
+
+    fireEvent.click(secondDayCell);
+    await waitFor(() => {
+      expect(screen.getByText(/Сергей/)).toBeTruthy();
+    });
+  });
+
+  it('adds new wishlist item from workspace form', async () => {
+    const { container } = renderLanding();
+    fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));
+
+    fireEvent.change(screen.getByPlaceholderText('Название подарка'), { target: { value: 'Новогодний сюрприз' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Пополнить вишлист' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Новогодний сюрприз · wanted')).toBeTruthy();
+    });
+  });
+
+  it('creates family setup in one click from workspace', async () => {
+    const { container } = renderLanding();
+    fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Создать семейный шаблон' }));
+
+    await waitFor(() => {
+      const groupSelect = container.querySelector('.workspace-groups select') as HTMLSelectElement;
+      expect(groupSelect).toBeTruthy();
+      expect(groupSelect.value.startsWith('family-') || groupSelect.value === 'family-template').toBe(true);
+      expect(readEventRows(container).length).toBe(1);
+      expect(screen.getByDisplayValue('Семейный вечер')).toBeTruthy();
+    });
+  });
 });

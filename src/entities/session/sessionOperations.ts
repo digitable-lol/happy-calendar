@@ -21,6 +21,8 @@ export const buildDraftEvent = (overrides?: {
   readonly categoryTitle?: string
   readonly budget?: number
   readonly createId?: () => string
+  readonly authorNickname?: string
+  readonly authorAvatarSeed?: string
 }): CalendarEvent => {
   const createId = overrides?.createId ?? null
   return {
@@ -34,6 +36,8 @@ export const buildDraftEvent = (overrides?: {
       budget: normalizeBudget(overrides?.budget ?? 3000),
     },
     wishlistUpdates: [],
+    authorNickname: overrides?.authorNickname,
+    authorAvatarSeed: overrides?.authorAvatarSeed,
   }
 }
 
