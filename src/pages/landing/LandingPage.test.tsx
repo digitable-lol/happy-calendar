@@ -215,4 +215,16 @@ describe('Landing page hashed session workspace', () => {
       expect(screen.getByDisplayValue('Семейный вечер')).toBeTruthy();
     });
   });
+
+  it('guides family onboarding steps in workspace', async () => {
+    renderLanding();
+    fireEvent.click(screen.getByRole('button', { name: 'Завести календарь' }));
+
+    expect(screen.getByText('Быстрый старт с женой/мужем')).toBeTruthy();
+    expect(screen.getByText('1) Создайте группу «Семья»')).toBeTruthy();
+    expect(screen.getByText('2) В этой группе добавьте событие (например: семейный ужин)')).toBeTruthy();
+    expect(screen.getByText('3) Нажмите на дату в календаре, чтобы редактировать нужное событие')).toBeTruthy();
+    expect(screen.getByText('4) Добавьте подарки/желания в вишлист')).toBeTruthy();
+    expect(screen.getByText('5) Скопируйте payload и отправьте партнёру')).toBeTruthy();
+  });
 });

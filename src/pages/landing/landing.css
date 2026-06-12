@@ -438,6 +438,61 @@
   color: var(--muted);
 }
 
+.workspace-guide {
+  margin: 12px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(14, 244, 223, 0.06);
+}
+
+.workspace-guide__title {
+  margin: 0 0 8px;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workspace-guide ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-guide li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.workspace-guide li::before {
+  content: '◌';
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  width: 11px;
+}
+
+.workspace-guide li em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.workspace-guide__step--done {
+  color: var(--white);
+}
+
+.workspace-guide__step--done::before {
+  content: '✓';
+}
+
 .workspace-head h2 {
   margin: 0;
   max-width: none;

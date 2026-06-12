@@ -135,6 +135,7 @@ export const LandingPage = () => {
   const [secret, setSecret] = useState('family-secret');
   const [fingerprint, setFingerprint] = useState('calculating...');
   const [copyState, setCopyState] = useState<Messages>(Messages.ACTION_COPY_PAYLOAD);
+  const [hasCopiedPayload, setHasCopiedPayload] = useState(false);
   const [importPayload, setImportPayload] = useState('');
   const [importMessage, setImportMessage] = useState<Messages | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -192,6 +193,31 @@ export const LandingPage = () => {
   const hasFamilyGroup = session.eventGroups.some((entry) => entry.title.toLowerCase() === FAMILY_GROUP_TITLE.toLowerCase());
   const familySeedDate = session.events[0]?.date ?? toIso(new Date());
   const nextFamilyAuthor = session.participants[0];
+  const familyGroup = session.eventGroups.find((entry) => entry.title.toLowerCase() === FAMILY_GROUP_TITLE.toLowerCase());
+  const familyEventCount = familyGroup ? familyGroup.eventIds.length : 0;
+  const familyActiveEvent = familyGroup ? session.events.find((entry) => familyGroup.eventIds.includes(entry.id)) : undefined;
+  const familyGuideSteps = [
+    {
+      key: Messages.WORKSPACE_FAMILY_STEP_GROUP,
+      done: hasFamilyGroup,
+    },
+    {
+      key: Messages.WORKSPACE_FAMILY_STEP_EVENT,
+      done: familyEventCount > 0,
+    },
+    {
+      key: Messages.WORKSPACE_FAMILY_STEP_DATE,
+      done: selectedGroup?.id === familyGroup?.id && familyActiveEvent?.id === selectedEventId,
+    },
+    {
+      key: Messages.WORKSPACE_FAMILY_STEP_WISHLIST,
+      done: Boolean(selectedGroup?.id === familyGroup?.id && (selectedEventId ? (workspaceEvent?.wishlistUpdates.length ?? 0) > 0 : false)),
+    },
+    {
+      key: Messages.WORKSPACE_FAMILY_STEP_SHARE,
+      done: hasCopiedPayload,
+    },
+  ];
 
   useEffect(() => {
     const syncFromHash = () => setView(window.location.hash === '#workspace' ? 'workspace' : 'landing');
@@ -203,6 +229,7 @@ export const LandingPage = () => {
   useEffect(() => {
     if (view === 'workspace') {
       setImportPayload(payload);
+      setHasCopiedPayload(false);
     }
   }, [payload, view]);
 
@@ -361,6 +388,7 @@ export const LandingPage = () => {
   const copyPayload = async () => {
     try {
       await navigator.clipboard.writeText(payload);
+      setHasCopiedPayload(true);
       setCopyState(Messages.ACTION_PAYLOAD_COPIED);
     } catch {
       setCopyState(Messages.ACTION_COPY_FROM_PAYLOAD);
@@ -429,6 +457,17 @@ export const LandingPage = () => {
             <DtButton onClick={ensureFamilyGroup} size="sm" variant={hasFamilyGroup ? 'ghost' : 'secondary'}>
               {hasFamilyGroup ? t(Messages.WORKSPACE_OPEN_EXISTING_FAMILY_GROUP) : t(Messages.WORKSPACE_CREATE_FAMILY_GROUP)}
             </DtButton>
+          </div>
+          <div className="workspace-guide">
+            <p className="workspace-guide__title">{t(Messages.WORKSPACE_FAMILY_GUIDE)}</p>
+            <ol>
+              {familyGuideSteps.map((step) => (
+                <li key={step.key} className={step.done ? 'workspace-guide__step--done' : undefined}>
+                  <span>{t(step.key)}</span>
+                  <em>{step.done ? t(Messages.WORKSPACE_FAMILY_STEP_DONE) : t(Messages.WORKSPACE_FAMILY_STEP_PENDING)}</em>
+                </li>
+              ))}
+            </ol>
           </div>
 
           <div className="workspace-grid">
